@@ -2,19 +2,21 @@
 """Control-isolated openpilot shadow-model prototype.
 
 Current supported production-like research mode:
-  active Chestnut/big model + shadow on-device/small model.
+  active Chestnut/USB-GPU big model + shadow on-device small model.
 
 The process publishes no cereal services and never sends vehicle commands.  It
 requires exact input snapshots from `ModeldShadowTapBridge` and writes shadow
 results to JSONL for later frameId pairing with the active modelV2 log.
 
-This file targets the current commaai/openpilot modeld API and is intentionally
-manual-start only.  Do not add it to manager/process_config until resource and
-latency measurements prove that it cannot perturb the active model path.
+This file supports the currently analyzed official openpilot and Carrot eGPU
+ModelState APIs.  It is intentionally manual-start only.  Do not add it to
+manager/process_config until resource and latency measurements prove that it
+cannot perturb the active model path.
 """
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 from pathlib import Path
@@ -22,10 +24,14 @@ import time
 
 import numpy as np
 
-import openpilot.cereal.messaging as messaging
 from openpilot.cereal import log
-from openpilot.cereal.visionipc import VisionStreamType
+try:
+  from openpilot.cereal.visionipc import VisionStreamType
+except ImportError:
+  from msgq.visionipc import VisionStreamType
 from msgq.visionipc import VisionIpcClient
+from openpilot.common.params import Params
+from openpilot.selfdrive.modeld import modeld as modeld_module
 from openpilot.selfdrive.modeld.modeld import FrameMeta, ModelState, get_action_from_model
 
 from egpu_future.shadow_runtime import AdmissionPolicy, Backend, ContinuityTracker, ShadowAdmissionController, TimingTrace
@@ -70,18 +76,39 @@ def _write_event(out, event: dict, flush: bool = False) -> None:
     out.flush()
 
 
-def _find_streams() -> tuple[VisionStreamType, bool]:
+def _stream_constants():
+  wide = VisionStreamType.VISION_STREAM_WIDE_ROAD
+  if hasattr(VisionStreamType, "VISION_STREAM_NARROW_ROAD"):
+    return VisionStreamType.VISION_STREAM_NARROW_ROAD, wide, False
+  return VisionStreamType.VISION_STREAM_ROAD, wide, True
+
+
+def _find_streams(params: Params):
+  road, wide, carrot_style = _stream_constants()
   while True:
     available = VisionIpcClient.available_streams("camerad", block=False)
-    if available:
-      use_extra = VisionStreamType.VISION_STREAM_WIDE_ROAD in available and VisionStreamType.VISION_STREAM_NARROW_ROAD in available
-      main_wide = VisionStreamType.VISION_STREAM_NARROW_ROAD not in available
-      main = VisionStreamType.VISION_STREAM_WIDE_ROAD if main_wide else VisionStreamType.VISION_STREAM_NARROW_ROAD
-      return main, use_extra
+    if not available:
+      time.sleep(0.1)
+      continue
+
+    if carrot_style:
+      # Match Carrot's select_vision_streams(): road stays primary when it is
+      # available; UseWideCamera controls whether wide is also consumed.
+      use_wide_camera = bool(params.get("UseWideCamera", return_default=True))
+      if road in available:
+        return road, use_wide_camera and wide in available
+      if use_wide_camera and wide in available:
+        return wide, False
+    else:
+      # Current official openpilot consumes narrow + wide when both exist.
+      if road in available:
+        return road, wide in available
+      if wide in available:
+        return wide, False
     time.sleep(0.1)
 
 
-def _connect_client(stream: VisionStreamType) -> VisionIpcClient:
+def _connect_client(stream) -> VisionIpcClient:
   # conflate=True is deliberate: shadow work may be dropped, but must never
   # build a camera backlog that competes with the active model.
   client = VisionIpcClient("camerad", stream, True)
@@ -103,6 +130,39 @@ def _recv_exact(client: VisionIpcClient, target_frame_id: int, max_reads: int = 
     if meta.frame_id > target_frame_id:
       return None, meta, "camera_advanced"
   return None, last_meta, "target_not_reached"
+
+
+def _run_model_compat(model, bufs, transforms, inputs, after_enqueue):
+  """Run official or Carrot ModelState without guessing positional semantics."""
+  run_params = inspect.signature(model.run).parameters
+  if "after_enqueue" in run_params:
+    return model.run(bufs, transforms, inputs, after_enqueue)
+  if "prepare_only" in run_params:
+    # Carrot has separate warp/policy stages but no enqueue callback in the
+    # public ModelState.run signature.  Keep the timestamp absent rather than
+    # inventing one.
+    return model.run(bufs, transforms, inputs, False)
+  raise RuntimeError(f"unsupported ModelState.run signature: {tuple(run_params)}")
+
+
+def _warmup_compat(model) -> None:
+  warmup = getattr(model, "warmup", None)
+  if callable(warmup):
+    warmup()
+
+
+def _action_compat(model_output: dict, prev_action, snap: ShadowInputSnapshot, params: Params):
+  action_params = inspect.signature(get_action_from_model).parameters
+  base_args = (model_output, prev_action, float(snap.action_t[0]), float(snap.action_t[1]), snap.v_ego)
+  if "lat_smooth_seconds" in action_params:
+    # Current Carrot extends the official action function with dynamic lateral
+    # smoothing and VEgoStopping.  Reuse the same implementation and Params.
+    base_lat_smooth = params.get_float("LatSmoothSec") * 0.01
+    v_ego_stopping = params.get_float("VEgoStopping") * 0.01
+    dyn_fn = getattr(modeld_module, "get_lat_smooth_seconds_dynamic", None)
+    lat_smooth = dyn_fn(model_output, base_lat_smooth)[0] if callable(dyn_fn) else base_lat_smooth
+    return get_action_from_model(*base_args, lat_smooth, v_ego_stopping)
+  return get_action_from_model(*base_args)
 
 
 def _record_skip(out, snap: ShadowInputSnapshot, reason: str, extra: dict | None = None) -> None:
@@ -142,10 +202,12 @@ def main() -> int:
   isolation = _apply_resource_isolation(args.nice, args.cpu_affinity)
   out_path = Path(args.output)
   out_path.parent.mkdir(parents=True, exist_ok=True)
+  params = Params()
 
-  main_stream, use_extra = _find_streams()
+  main_stream, use_extra = _find_streams(params)
+  _, wide_stream, _ = _stream_constants()
   main_client = _connect_client(main_stream)
-  extra_client = _connect_client(VisionStreamType.VISION_STREAM_WIDE_ROAD) if use_extra else None
+  extra_client = _connect_client(wide_stream) if use_extra else None
 
   # Only the on-device model is supported by this first live prototype.  This
   # avoids a second process contending for Chestnut/USB resources.
@@ -176,12 +238,10 @@ def main() -> int:
         continue
 
       # Defer model allocation until a big-model active frame is actually seen.
-      # Merely launching this research process should not consume QCOM model
-      # resources while the active model is already small/fallback.
       if model is None:
         load_start = time.monotonic_ns()
         model = ModelState(main_client.width, main_client.height, False)
-        model.warmup()
+        _warmup_compat(model)
         _write_event(out, {"type": "model_loaded", "shadowBackend": "small",
                            "loadMs": (time.monotonic_ns() - load_start) / 1e6}, flush=True)
         # The frame that triggered model loading is too old to compare.
@@ -208,9 +268,6 @@ def main() -> int:
       else:
         buf_extra, meta_extra = buf_main, meta_main
 
-      # Require the tap metadata to describe the exact camera buffers we are
-      # about to process.  Any mismatch is a shadow drop, never a reason to
-      # delay or alter the active model.
       if meta_main.frame_id != snap.frame_id or meta_extra.frame_id != snap.frame_id_extra:
         continuity = ContinuityTracker(args.settle_frames)
         prev_action = log.ModelDataV2.Action()
@@ -236,7 +293,9 @@ def main() -> int:
         device_enqueued_ns = time.monotonic_ns()
 
       try:
-        model_output = model.run(bufs, transforms, inputs, after_enqueue)
+        model_output = _run_model_compat(model, bufs, transforms, inputs, after_enqueue)
+        if model_output is None:
+          raise RuntimeError("shadow ModelState returned no output")
       except Exception as exc:
         inference_done_ns = time.monotonic_ns()
         continuity = ContinuityTracker(args.settle_frames)
@@ -252,7 +311,7 @@ def main() -> int:
         return 2
 
       inference_done_ns = time.monotonic_ns()
-      action = get_action_from_model(model_output, prev_action, float(snap.action_t[0]), float(snap.action_t[1]), snap.v_ego)
+      action = _action_compat(model_output, prev_action, snap, params)
       prev_action = action
       continuity_result = continuity.observe(snap.frame_id)
 
@@ -274,6 +333,14 @@ def main() -> int:
         and continuity_result.gap_frames == 0
       )
 
+      action_row = {
+        "desiredCurvature": float(action.desiredCurvature),
+        "desiredAcceleration": float(action.desiredAcceleration),
+        "shouldStop": bool(action.shouldStop),
+      }
+      if hasattr(action, "desiredVelocity"):
+        action_row["desiredVelocity"] = float(action.desiredVelocity)
+
       event = {
         "type": "shadow_output",
         "frameId": snap.frame_id,
@@ -287,13 +354,10 @@ def main() -> int:
         "continuityStreak": continuity_result.streak,
         "gapFrames": continuity_result.gap_frames,
         "vEgo": snap.v_ego,
-        "action": {
-          "desiredCurvature": float(action.desiredCurvature),
-          "desiredAcceleration": float(action.desiredAcceleration),
-          "shouldStop": bool(action.shouldStop),
-        },
+        "action": action_row,
         "timing": timing,
         "timingOrdered": trace.ordered(),
+        "upstreamRunApi": "after_enqueue" if device_enqueued_ns is not None else "prepare_only",
       }
       events_since_flush += 1
       _write_event(out, event, flush=events_since_flush >= args.flush_every)
