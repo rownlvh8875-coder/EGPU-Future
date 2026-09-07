@@ -1,8 +1,8 @@
 """Classify local Carrot source compatibility against reviewed code blobs.
 
 Branch HEAD alone is not a sufficient integration boundary for a fast-moving
-experimental branch.  A documentation-only commit can legitimately move HEAD
-without changing the code paths EGPU-Future relies on.  Conversely, one
+experimental branch. A documentation-only commit can legitimately move HEAD
+without changing the code paths EGPU-Future relies on. Conversely, one
 critical code blob changing is enough to require re-review.
 """
 from __future__ import annotations
@@ -18,8 +18,9 @@ class SourceCompatibility(str, Enum):
 
 
 # These blobs were independently re-read on 2026-09-07 at the then-current
-# carrot-egpu-yolo tip 1310ed43... .  They are intentionally narrow: only code
-# that materially affects the commissioning assumptions is pinned here.
+# carrot-egpu-yolo tip 1310ed43... . They intentionally cover only code that
+# materially affects commissioning, model publication, manager reload behavior,
+# and QCOM hardware profiling assumptions.
 REVIEWED_HEADS = {
   "2c508b1dde53b9a996546993e1c7b5b74b489541",
   "1310ed43fe70a903d31589295f4dabe37649dab2",
@@ -30,6 +31,8 @@ CRITICAL_BLOBS = {
   "openpilot/selfdrive/modeld/fill_model_msg.py": "1bffbcc5202d64e42b3832a4ab9ee0f72ff85bd1",
   "openpilot/system/manager/process.py": "a4b548fe597cb27ca38962b3e1cba52ca861eaab",
   "openpilot/system/manager/process_config.py": "f96c53dbdf9d0cb2670f0ccdeca8faf96ef8b735",
+  "openpilot/system/manager/manager.py": "15c518989e3f056376656a4409d55c29fd621f08",
+  "launch_chffrplus.sh": "d49e055b572a1789ea841c3c6717183fc0b21d30",
   "tinygrad_repo/tinygrad/runtime/support/hcq.py": "9d87005226f4141a77eb956abb38c50c3d2fb203",
   "tinygrad_repo/tinygrad/runtime/ops_qcom.py": "6eb3dc25b576385db6574aec7a9660deaa489ec3",
 }
