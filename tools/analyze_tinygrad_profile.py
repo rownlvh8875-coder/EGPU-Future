@@ -18,6 +18,8 @@ def main() -> None:
   ap = argparse.ArgumentParser(description="Summarize tinygrad HCQ hardware kernel timestamps")
   ap.add_argument("profile", type=Path, help="trusted tinygrad profile.pkl produced with PROFILE=1")
   ap.add_argument("--device-prefix", default="QCOM", help="QCOM, AMD, etc.")
+  ap.add_argument("--include-subdevices", action="store_true",
+                  help="include names such as QCOM:COPY; default QCOM analysis selects exact hardware device only")
   ap.add_argument("--top", type=int, default=20)
   ap.add_argument("--output", type=Path, default=None)
   args = ap.parse_args()
@@ -30,7 +32,12 @@ def main() -> None:
   report = {
     "profilePath": str(args.profile),
     "warning": "Loaded trusted local pickle. Do not analyze untrusted pickle files.",
-    **summarize_profile_events(events, device_prefix=args.device_prefix, top_n=args.top),
+    **summarize_profile_events(
+      events,
+      device_prefix=args.device_prefix,
+      top_n=args.top,
+      include_subdevices=args.include_subdevices,
+    ),
   }
   text = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
   print(text, end="")
