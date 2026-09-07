@@ -140,9 +140,10 @@ Carrot는 이미 다음 interprocess lock을 사용한다.
 
 `usbgpu_bus_lock()`은 re-entrant이며 tinygrad USB transport와 Carrot cluster USB display가 같은 lock을 공유한다.
 
-S2의 supply/PCIe 읽기도 이 lock을 사용한다. SMU read의 USB transaction도 tinygrad USB layer가 같은 lock을 사용한다.
+- supply/PCIe read는 S2에서 이 lock을 명시적으로 잡는다.
+- SMU table/PPT read는 tinygrad USB transport 내부의 각 transaction이 동일한 Carrot lock을 사용한다.
 
-따라서 별도 독자 USB locking 체계를 만들지 않는다.
+따라서 별도 독자 USB locking 체계를 만들지 않는다. 실제 장비에서 `sampleDurationMs`와 active model latency tail을 함께 확인해, telemetry read가 USB transaction scheduling에 영향을 주는지도 commissioning에서 검증한다.
 
 ## 출력 예시
 
