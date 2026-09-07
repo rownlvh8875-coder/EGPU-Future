@@ -20,11 +20,11 @@ def h(**kw):
 
 
 def drive_to_warmup(sm):
-  sm.update(h())
-  for _ in range(sm.policy.stable_power_ticks):
+  # Discover device, stabilize power/USB, stabilize PCIe, then begin warmup.
+  for _ in range(32):
     sm.update(h())
-  for _ in range(sm.policy.stable_link_ticks):
-    sm.update(h())
+    if sm.state == EgpuState.PCIE_READY:
+      break
   assert sm.state == EgpuState.PCIE_READY
   sm.update(h())
   assert sm.state == EgpuState.MODEL_WARMUP
