@@ -12,12 +12,13 @@ import subprocess
 from egpu_future.carrot_wip_integrated_patch import PINNED_CARROT_WIP_HEAD, TARGET_MODELD_PATH
 from egpu_future.carrot_wip_integrated_stage2_patch import stage2_patch_summary
 from egpu_future.carrot_wip_integrated_stage4b_patch import (
-  TARGET_SHADOW_TAP_PATH, patch_stage4b_text, patch_summary,
+  TARGET_SHADOW_TAP_PATH, TARGET_SHADOW_PROBE_PATH, patch_stage4b_text, patch_summary,
   strip_stage4b_blocks, verify_stage4b_path_unchanged,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_SOURCE = PROJECT_ROOT / "integrations/carrot_wip_integrated/runtime/shadow_tap.py"
+PROBE_SOURCE = PROJECT_ROOT / "tools/carrot_wip_s4b_shadow_probe.py"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -36,7 +37,10 @@ def main() -> int:
   ap.add_argument("--allow-head-drift", action="store_true")
   args = ap.parse_args()
 
-  repo = args.repo.resolve(); modeld = repo / TARGET_MODELD_PATH; target = repo / TARGET_SHADOW_TAP_PATH
+  repo = args.repo.resolve()
+  modeld = repo / TARGET_MODELD_PATH
+  tap_target = repo / TARGET_SHADOW_TAP_PATH
+  probe_target = repo / TARGET_SHADOW_PROBE_PATH
   if not modeld.is_file(): raise SystemExit(f"missing {modeld}")
   head = git(repo, "rev-parse", "HEAD")
   if head != PINNED_CARROT_WIP_HEAD and not args.allow_head_drift:
@@ -50,29 +54,42 @@ def main() -> int:
     restored = strip_stage4b_blocks(current)
     verify_stage4b_path_unchanged(restored, current)
     modeld.write_text(restored, encoding="utf-8")
-    if target.exists(): target.unlink()
-    print("revertedStage4B=true\ncontrolPathPreserved=true")
+    for path in (tap_target, probe_target):
+      try: path.unlink()
+      except FileNotFoundError: pass
+    print("revertedStage4B=true\ncontrolPathPreserved=true\nmanualProbeRemoved=true")
     return 0
 
-  if any((patch_summary(current).imports, patch_summary(current).init, patch_summary(current).send)):
-    raise SystemExit(f"S4B patch already/partially present: {patch_summary(current)}")
+  summary = patch_summary(current)
+  if any((summary.imports, summary.init, summary.send)):
+    raise SystemExit(f"S4B patch already/partially present: {summary}")
   patched = patch_stage4b_text(current); verify_stage4b_path_unchanged(current, patched)
   diff = "".join(difflib.unified_diff(current.splitlines(True), patched.splitlines(True), fromfile=f"a/{TARGET_MODELD_PATH}", tofile=f"b/{TARGET_MODELD_PATH}"))
   print(f"head={head}\nstage4bPathVerification=PASS")
   print(diff, end="" if diff.endswith("\n") else "\n")
   if not args.apply:
-    print("dryRun=true"); return 0
-  if target.exists(): raise SystemExit(f"runtime already exists: {target}")
+    print(f"dryRun=true\nwouldInstallProbe={TARGET_SHADOW_PROBE_PATH}")
+    return 0
+
+  for path in (tap_target, probe_target):
+    if path.exists(): raise SystemExit(f"target already exists: {path}")
   try:
-    target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(RUNTIME_SOURCE, target); modeld.write_text(patched, encoding="utf-8")
-    py_compile.compile(str(target), doraise=True); py_compile.compile(str(modeld), doraise=True)
+    tap_target.parent.mkdir(parents=True, exist_ok=True)
+    probe_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(RUNTIME_SOURCE, tap_target)
+    shutil.copyfile(PROBE_SOURCE, probe_target)
+    modeld.write_text(patched, encoding="utf-8")
+    py_compile.compile(str(tap_target), doraise=True)
+    py_compile.compile(str(probe_target), doraise=True)
+    py_compile.compile(str(modeld), doraise=True)
     verify_stage4b_path_unchanged(current, modeld.read_text(encoding="utf-8"))
   except Exception:
     modeld.write_text(current, encoding="utf-8")
-    try: target.unlink()
-    except FileNotFoundError: pass
+    for path in (tap_target, probe_target):
+      try: path.unlink()
+      except FileNotFoundError: pass
     raise
-  print("applyStage4B=true\nmanagerAutostart=false\nshadowControlsPublish=false")
+  print(f"applyStage4B=true\nmanualProbe={TARGET_SHADOW_PROBE_PATH}\nmanagerAutostart=false\nshadowControlsPublish=false")
   return 0
 
 
