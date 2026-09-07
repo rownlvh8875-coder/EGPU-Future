@@ -14,6 +14,7 @@ def snap(frame_id=10):
   return ShadowInputSnapshot(
     frame_id=frame_id,
     frame_id_extra=frame_id,
+    state_frame_id=frame_id + 1,
     camera_sof_ns=1_000_000_000 + frame_id,
     camera_eof_ns=1_010_000_000 + frame_id,
     active_backend="big",
@@ -31,6 +32,7 @@ def test_round_trip():
   original = snap()
   decoded = decode_snapshot(encode_snapshot(original))
   assert decoded == original
+  assert decoded.state_frame_id == 11
 
 
 def test_sender_drops_when_receiver_missing(tmp_path):
@@ -59,6 +61,7 @@ def test_receiver_drains_to_latest(tmp_path):
         time.sleep(0.005)
       assert latest is not None
       assert latest.frame_id == 12
+      assert latest.state_frame_id == 13
       assert receiver.received == 3
       assert receiver.superseded == 2
     finally:
