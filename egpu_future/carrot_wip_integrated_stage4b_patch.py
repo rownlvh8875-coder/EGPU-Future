@@ -8,6 +8,7 @@ from egpu_future.carrot_wip_integrated_stage2_patch import stage2_patch_summary
 
 
 TARGET_SHADOW_TAP_PATH = "openpilot/selfdrive/modeld/egpu_integrated_shadow_tap.py"
+TARGET_SHADOW_PROBE_PATH = "tools/egpu_integrated_s4b_shadow_probe.py"
 
 IMPORT_BLOCK = """# EGPU-INTEGRATED SHADOW TAP IMPORT BEGIN\nfrom openpilot.selfdrive.modeld.egpu_integrated_shadow_tap import IntegratedShadowTap\n# EGPU-INTEGRATED SHADOW TAP IMPORT END\n"""
 INIT_BLOCK = """  # EGPU-INTEGRATED SHADOW TAP INIT BEGIN\n  egpu_integrated_shadow_tap = IntegratedShadowTap()\n  # EGPU-INTEGRATED SHADOW TAP INIT END\n"""
