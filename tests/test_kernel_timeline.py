@@ -20,6 +20,24 @@ def test_model_window_from_shadow_event():
   assert w.enqueue_us == 1100.0
 
 
+def test_model_window_reconstructed_from_existing_timing_fields():
+  row = {
+    "type": "shadow_output",
+    "frameId": 20,
+    "cameraTimestampEofNs": 10_000_000,
+    "timing": {
+      "capture_to_done_ms": 8.0,
+      "model_call_total_ms": 5.0,
+      "call_to_enqueue_ms": 1.5,
+    },
+  }
+  w = model_window_from_shadow_event(row)
+  assert w is not None
+  assert w.start_us == 13_000.0
+  assert w.end_us == 18_000.0
+  assert w.enqueue_us == 14_500.0
+
+
 def test_correlate_window_hardware_profile():
   w = ModelWindow(frame_id=7, start_us=1000, end_us=6000, enqueue_us=1200)
   kernels = [
