@@ -22,21 +22,45 @@ class ModelWindow:
 def model_window_from_shadow_event(row: dict) -> ModelWindow | None:
   if row.get("type") != "shadow_output":
     return None
-  host = row.get("hostTimestampsNs") or {}
   frame_id = int(row.get("frameId", 0) or 0)
+  if frame_id <= 0:
+    return None
+
+  # Newer logs may carry raw host timestamps directly.
+  host = row.get("hostTimestampsNs") or {}
   try:
     start_ns = int(host["modelCallStart"])
     end_ns = int(host["inferenceDone"])
+    if start_ns > 0 and end_ns >= start_ns:
+      enqueue = host.get("deviceEnqueued")
+      try:
+        enqueue_us = float(enqueue) / 1000.0 if enqueue is not None else None
+      except (TypeError, ValueError):
+        enqueue_us = None
+      return ModelWindow(frame_id, start_ns / 1000.0, end_ns / 1000.0, enqueue_us)
+  except (KeyError, TypeError, ValueError):
+    pass
+
+  # Existing shadow logs already contain enough information to reconstruct the
+  # same host window without changing the runtime process: camera EOF is on the
+  # monotonic clock and TimingTrace stores EOF->done plus total model-call time.
+  timing = row.get("timing") or {}
+  try:
+    eof_ns = int(row["cameraTimestampEofNs"])
+    capture_to_done_ms = float(timing["capture_to_done_ms"])
+    model_call_ms = float(timing["model_call_total_ms"])
   except (KeyError, TypeError, ValueError):
     return None
-  if frame_id <= 0 or start_ns <= 0 or end_ns < start_ns:
+  end_us = eof_ns / 1000.0 + capture_to_done_ms * 1000.0
+  start_us = end_us - model_call_ms * 1000.0
+  if start_us <= 0 or end_us < start_us:
     return None
-  enqueue = host.get("deviceEnqueued")
+  call_to_enqueue_ms = timing.get("call_to_enqueue_ms")
   try:
-    enqueue_us = float(enqueue) / 1000.0 if enqueue is not None else None
+    enqueue_us = start_us + float(call_to_enqueue_ms) * 1000.0 if call_to_enqueue_ms is not None else None
   except (TypeError, ValueError):
     enqueue_us = None
-  return ModelWindow(frame_id, start_ns / 1000.0, end_ns / 1000.0, enqueue_us)
+  return ModelWindow(frame_id, start_us, end_us, enqueue_us)
 
 
 def correlate_window(window: ModelWindow, kernels: list[KernelRange], tolerance_us: float = 50.0) -> dict:
