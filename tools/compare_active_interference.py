@@ -31,8 +31,22 @@ def main() -> None:
   args = ap.parse_args()
 
   require_big = not args.all_backends
-  baseline = latency_stats_ms(load_jsonl(args.baseline_jsonl), args.deadline_ms, require_big=require_big)
-  shadow_on = latency_stats_ms(load_jsonl(args.shadow_on_jsonl), args.deadline_ms, require_big=require_big)
+  baseline_rows = load_jsonl(args.baseline_jsonl)
+  shadow_rows = load_jsonl(args.shadow_on_jsonl)
+  baseline = latency_stats_ms(baseline_rows, args.deadline_ms, require_big=require_big)
+  shadow_on = latency_stats_ms(shadow_rows, args.deadline_ms, require_big=require_big)
+
+  if baseline["samples"] == 0 or shadow_on["samples"] == 0:
+    scope = "big_only" if require_big else "all_backends"
+    hint = (
+      "If this is a Carrot eGPU commissioning log, its modelV2.big field may be unset. "
+      "Re-extract only an independently verified eGPU-active interval with "
+      "extract_model_actions_from_log.py --backend-label big, or use --all-backends only when that scope is intended."
+    )
+    raise SystemExit(
+      f"no selected samples for scope={scope}: baseline={baseline['samples']} shadow_on={shadow_on['samples']}. {hint}"
+    )
+
   report = {
     "scope": "all_backends" if args.all_backends else "big_only",
     "researchDeadlineMs": args.deadline_ms,
