@@ -1,0 +1,37 @@
+{
+  "sourceRepository": "ajouatom/openpilot",
+  "sourceBranch": "carrot-egpu-yolo",
+  "sourceCommit": "2c508b1dde53b9a996546993e1c7b5b74b489541",
+  "sourceFile": "docs/egpu_yolo_experiment.md",
+  "experiment": "stationary internal-QCOM YOLO publication trial",
+  "durationSeconds": 180,
+  "publishedResults": 688,
+  "publicationRateHz": 3.85,
+  "skippedFrames": 0,
+  "fullLiveExecutionMs": {
+    "p50": 119.88,
+    "p95": 138.74,
+    "p99": 148.59,
+    "max": 184.71
+  },
+  "activeDrivingExecutionMs": {
+    "before": {"p50": 36.55, "p99": 39.26, "max": 40.98},
+    "during": {"p50": 36.62, "p99": 43.26, "max": 56.04},
+    "after": {"p50": 35.82, "p99": 37.65, "max": 38.89}
+  },
+  "cameraEofToModelEventMs": {
+    "before": {"p50": 80.83, "p99": 94.46, "max": 104.67},
+    "during": {"p50": 83.87, "p99": 108.44, "max": 120.35},
+    "after": {"p50": 84.30, "p99": 95.71, "max": 99.87}
+  },
+  "webResponsesSampled": 56,
+  "webResponsesFresh": 35,
+  "webResponsesExpiredOver350Ms": 21,
+  "sourceConclusion": "remaining tail-latency cost; does not validate use while driving",
+  "egpuFutureInterpretation": "Evidence that even a low-rate QCOM sidecar can increase active-model tail latency. It motivates tap-only commissioning before any second full driving-model inference.",
+  "limitations": [
+    "stationary commissioning trial, not public-road validation",
+    "YOLO workload is not identical to a second driving small model",
+    "reported metrics are taken from the Carrot experiment document, not independently reproduced by EGPU-Future"
+  ]
+}
