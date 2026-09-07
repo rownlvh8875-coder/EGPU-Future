@@ -1,4 +1,4 @@
-from egpu_future.kernel_timeline import ModelWindow, correlate_window, model_window_from_shadow_event
+from egpu_future.kernel_timeline import ModelWindow, correlate_window, model_window_from_shadow_event, summarize_correlations
 from egpu_future.tinygrad_profile import KernelRange
 
 
@@ -60,3 +60,19 @@ def test_correlate_window_without_kernels():
   r = correlate_window(ModelWindow(1, 0, 1000), [])
   assert r["coveredByHardwareProfile"] is False
   assert r["kernelCount"] == 0
+
+
+def test_summarize_correlations():
+  rows = [
+    {"modelCallMs": 10.0, "kernelCount": 2, "firstKernelDelayMs": 1.0, "enqueueToFirstKernelMs": 0.5,
+     "kernelEnvelopeMs": 7.0, "kernelBusyMs": 6.0, "afterLastKernelMs": 2.0, "coveredByHardwareProfile": True},
+    {"modelCallMs": 11.0, "kernelCount": 0, "firstKernelDelayMs": None, "enqueueToFirstKernelMs": None,
+     "kernelEnvelopeMs": None, "kernelBusyMs": 0.0, "afterLastKernelMs": None, "coveredByHardwareProfile": False},
+  ]
+  s = summarize_correlations(rows)
+  assert s["frames"] == 2
+  assert s["coveredFrames"] == 1
+  assert s["coverage"] == 0.5
+  assert s["kernelCountTotal"] == 2
+  assert s["modelCall"]["p50Ms"] == 10.5
+  assert s["kernelBusy"]["meanMs"] == 6.0
