@@ -130,6 +130,31 @@ Vehicle low-voltage bus
 
 ---
 
+# 발열·팬소음은 software로도 줄일 수 있음
+
+추가 소스 분석 결과, `tinygrad` AMD SMU 구현에는 실제 GPU PPT를 바꾸는 `set_power_limit(watts)`가 존재합니다.
+
+현재 openpilot Chestnut code는 power limit을 telemetry로 읽지만 조사한 master code에서는 이 기능을 closed-loop thermal/noise control에 적극 사용하지 않습니다.
+
+따라서 EGPU-Future에서는 다음 실험이 가능합니다.
+
+```text
+Default GPU PPT
+   ↓ 10 W step sweep
+GPU power / temperature / fan RPM 측정
+   +
+p95/p99 model latency / frame drop 측정
+   ↓
+20 Hz deadline을 안정적으로 만족하는
+가장 낮은 GPU power point 선택
+```
+
+현재 model loop는 20 Hz이므로 nominal period는 50 ms입니다. 초기 연구 기준으로 p99 model execution을 40 ms 이하로 두는 등 margin을 적용해 볼 수 있으나, 이는 공식 openpilot 기준이 아니라 실제 end-to-end 측정으로 수정할 연구값입니다.
+
+상세 설계: [Chestnut Adaptive Power / Thermal / Noise Control](docs/CHESTNUT_POWER_THERMAL_CONTROL_DESIGN_KR.md)
+
+---
+
 # 현재 openpilot에 이미 있는 Chestnut health telemetry
 
 현재 master에는 다음이 이미 존재합니다.
@@ -184,12 +209,13 @@ DISCONNECTED
 2. **Disagreement logger** — 두 model 판단이 달라진 hard case 자동 저장
 3. **Latency observability** — camera → preprocess → USB → eGPU → action end-to-end latency
 4. **Chestnut health recorder** — voltage/current/temp/power/fan/PCIe/USB 연속 기록
-5. **Recovery state machine** — late power, GPU reset, USB reconnect 후 안전한 retry
-6. **Scenario evaluator** — 급곡선, cut-in, 정체출발, cone, lane merge, lead lost/acquired
-7. **Independent action/trajectory validator** — eGPU output의 vehicle feasibility 검증
-8. **Fallback validation** — eGPU fault 시 small model 전환의 연속성과 안정성 검증
-9. **Teacher/student pipeline** — big model behavior를 small model 개선에 활용
-10. **World-model evaluation** — long-tail 상황을 replay/generative simulation에서 반복 검증
+5. **Adaptive PPT controller** — model deadline을 만족하는 최소 안정 전력점 탐색
+6. **Recovery state machine** — late power, GPU reset, USB reconnect 후 안전한 retry
+7. **Scenario evaluator** — 급곡선, cut-in, 정체출발, cone, lane merge, lead lost/acquired
+8. **Independent action/trajectory validator** — eGPU output의 vehicle feasibility 검증
+9. **Fallback validation** — eGPU fault 시 small model 전환의 연속성과 안정성 검증
+10. **Teacher/student pipeline** — big model behavior를 small model 개선에 활용
+11. **World-model evaluation** — long-tail 상황을 replay/generative simulation에서 반복 검증
 
 ---
 
@@ -233,6 +259,7 @@ DISCONNECTED
 1. [EGPU 이후 자율주행 기술방향 종합분석](docs/EGPU_AUTONOMY_STRATEGY_KR.md)
 2. [Tesla·Waymo·Wayve·Mobileye·Autoware 등 자율주행 아키텍처 비교](docs/AUTONOMY_ARCHITECTURE_COMPARISON_KR.md)
 3. [차량용 eGPU 전원·발열·팬소음·신뢰성 통합 설계](docs/VEHICLE_EGPU_POWER_THERMAL_INTEGRATION_KR.md)
+4. [Chestnut Adaptive Power / Thermal / Noise Control 설계](docs/CHESTNUT_POWER_THERMAL_CONTROL_DESIGN_KR.md)
 
 ---
 
@@ -273,6 +300,7 @@ Real-world capability
 - Autoware Open AD Kit: https://github.com/autowarefoundation/openadkit
 - NVIDIA DRIVE Hyperion: https://www.nvidia.com/en-us/solutions/autonomous-vehicles/drive-hyperion/
 - AMD RX 9060: https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9060.html
+- tinygrad AMD runtime: https://github.com/tinygrad/tinygrad/blob/master/tinygrad/runtime/support/am/ip.py
 - TI automotive power/transient references: https://www.ti.com/tool/TIDA-01167
 - comma.ai Reddit community: https://www.reddit.com/r/Comma_ai/
 
