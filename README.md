@@ -4,7 +4,7 @@ comma 4 + Chestnut/eGPU 이후의 openpilot 계열 자율주행 발전 방향을
 
 목표는 단순히 GPU를 달아 FPS를 올리는 것이 아닙니다.
 
-**더 큰 driving/world model을 실차에서 사용할 수 있게 된 이후 센서·학습·안전·전원·열·통신·fallback·replay 검증까지 포함한 vehicle-integrated autonomy architecture를 만드는 것**을 목표로 합니다.
+**더 큰 driving/world model을 실차에서 사용할 수 있게 된 이후 센서·학습·안전·전원·열·통신·fallback·replay·live shadow 검증까지 포함한 vehicle-integrated autonomy architecture를 만드는 것**을 목표로 합니다.
 
 ---
 
@@ -17,6 +17,39 @@ comma 4 + Chestnut/eGPU 이후의 openpilot 계열 자율주행 발전 방향을
 - **차량 제어**: 차량별 actuator 한계와 panda/openpilot safety constraint 유지
 
 **AI capability ≠ vehicle control capability**입니다. eGPU가 커져도 OEM EPS torque/angle-rate, longitudinal authority, 센서 blind spot은 자동으로 해결되지 않습니다.
+
+---
+
+# 현재 개발 단계
+
+현재는 replay 비교를 넘어 **control-isolated live `shadow_modeld` prototype**까지 구현했습니다.
+
+```text
+replay small/big 비교
+ → frameId deterministic pairing
+ → freshness/deadline/action validator
+ → eGPU recovery / same-frame fallback budget
+ → live shadow input tap
+ → control-isolated shadow small model
+ → active-path interference 측정   ← 현재
+ → 검증 후에만 다음 통합 단계 검토
+```
+
+현재 live 구조:
+
+```text
+camerad
+  │
+  ├────────→ active big modeld ─────────→ modelV2 → controls
+  │                    │
+  │                    │ non-blocking metadata tap
+  │                    ▼
+  └────────→ shadow small modeld ───────→ JSONL only
+```
+
+shadow output은 `modelV2`로 publish하지 않고 차량제어에 사용하지 않습니다.
+
+상세: [True shadow_modeld Prototype](docs/SHADOW_MODELD_PROTOTYPE_KR.md)
 
 ---
 
@@ -86,6 +119,7 @@ EGPU-Future에서는 전체 Carrot branch를 합치지 않고 기능 단위로 �
 - deterministic frameId pairing
 - frame freshness/deadline/action validator
 - same-frame hot-fallback latency budget evaluator
+- official/Carrot `modeld` API compatibility layer
 
 상세: [ajouatom Carrot eGPU 브랜치 분석](docs/AJOUATOM_CARROT_EGPU_ANALYSIS_KR.md)
 
@@ -214,7 +248,7 @@ DISCONNECTED
  → MODEL_WARMUP
 ```
 
-## Small/Big replay·shadow
+## Replay small/big
 
 - `tools/extract_model_actions_from_log.py`
 - `egpu_future/frame_pairing.py`
@@ -232,7 +266,68 @@ DISCONNECTED
 
 실행 절차: [Small / Big Model Replay·Shadow 검증 절차](docs/SHADOW_REPLAY_PIPELINE_KR.md)
 
+## Live shadow — 신규
+
+Core:
+
+- `egpu_future/shadow_runtime.py`
+- `egpu_future/shadow_tap.py`
+- `egpu_future/shadow_log.py`
+- `egpu_future/interference.py`
+
+openpilot integration:
+
+- `integrations/openpilot/modeld_shadow_tap_bridge.py`
+
+Runtime / analysis:
+
+- `tools/shadow_modeld_prototype.py`
+- `tools/normalize_shadow_modeld_log.py`
+- `tools/summarize_shadow_modeld.py`
+- `tools/benchmark_shadow_tap.py`
+- `tools/compare_active_interference.py`
+
+특징:
+
+- shadow 결과는 JSONL only
+- 차량제어 service publish 없음
+- non-blocking/fail-open tap
+- exact frameId + stateFrameId
+- actual frameAge 보존
+- same-backend guard
+- latest-only/conflated backpressure
+- official Chestnut / Carrot USB-GPU API 차이 처리
+- active baseline vs shadow-on latency delta 분석
+
+상세: [True shadow_modeld Prototype](docs/SHADOW_MODELD_PROTOTYPE_KR.md)
+
 개발현황: [DEVELOPMENT_STATUS_KR.md](docs/DEVELOPMENT_STATUS_KR.md)
+
+---
+
+# 현재 live shadow의 중요한 제한
+
+## QCOM small model 중복
+
+현재 공식 Chestnut `modeld`는 big이 active여도 fallback용 small model을 warm 상태로 보유합니다. process-separated shadow prototype은 별도의 small model을 추가로 로드합니다.
+
+따라서 실기기에서는 정확도보다 먼저:
+
+- QCOM memory pressure
+- QCOM scheduling contention
+- active big p95/p99 latency delta
+- active frame drop
+- fallback small readiness
+
+를 검증합니다.
+
+## temporal state
+
+5 Hz 등의 sampling은 load probe용이며 정확한 temporal 비교용이 아닙니다. 20 Hz 연속 처리와 continuity를 우선합니다.
+
+## tap overhead
+
+socket은 non-blocking이지만 JSON encode 비용은 active process에서 발생합니다. benchmark와 bridge 자체 µs 측정값으로 검증합니다.
 
 ---
 
@@ -269,6 +364,12 @@ Review event:
 - deterministic frame pairing
 - no sample reuse / ambiguity rejection
 - output freshness/deadline/action validation
+- shadow admission / continuity / backpressure
+- tap encode/decode / missing receiver / latest drain
+- live frameAge normalization
+- official/Carrot backend detection
+- active interference metric 계산
+- Python compile check
 
 hardware/openpilot integration test는 실제 openpilot/Chestnut 환경에서 별도로 수행합니다.
 
@@ -276,16 +377,19 @@ hardware/openpilot integration test는 실제 openpilot/Chestnut 환경에서 �
 
 # 다음 개발 단계
 
-1. **true `shadow_modeld` prototype**
-2. camera SOF/EOF → preprocess → GPU enqueue/complete → model publish 상세 timestamp
-3. sampled dual inference의 QCOM/USB/memory/thermal interference 측정
-4. lead acquired/lost, cut-in, merge, construction scenario tag 확장
-5. Carrot YOLO/RoadSeg에서 아이디어를 가져온 sidecar evidence schema
-6. route health report 자동생성
-7. replay fault injection 자동화
-8. 그 다음 advisory PPT controller
+1. **comma 장비에서 tap overhead 실측**
+2. parked 5 Hz shadow load probe
+3. parked/offroad 20 Hz continuity test
+4. active big baseline vs shadow-on interference report
+5. QCOM second-small memory/scheduling 검증
+6. tinygrad-level enqueue/kernel completion timestamp
+7. Carrot `prepare_only` hardware smoke test
+8. lead acquired/lost, cut-in, merge, construction scenario 확장
+9. sidecar YOLO/RoadSeg evidence schema
+10. route health report / replay fault injection 자동화
+11. 그 다음 advisory PPT controller
 
-처음부터 eGPU 출력을 차량제어에 넣지 않습니다. **replay → shadow → recovery validation → staged integration** 순서로 진행합니다.
+처음부터 eGPU/shadow 출력을 차량제어에 넣지 않습니다. **replay → control-isolated shadow → interference/recovery validation → staged integration** 순서로 진행합니다.
 
 ---
 
@@ -300,7 +404,8 @@ hardware/openpilot integration test는 실제 openpilot/Chestnut 환경에서 �
 7. [GPU / eGPU Dock 호환성 분석](docs/GPU_DOCK_COMPATIBILITY_KR.md)
 8. [ajouatom Carrot eGPU 분석](docs/AJOUATOM_CARROT_EGPU_ANALYSIS_KR.md)
 9. [Small / Big Replay·Shadow 파이프라인](docs/SHADOW_REPLAY_PIPELINE_KR.md)
-10. [개발 현황](docs/DEVELOPMENT_STATUS_KR.md)
+10. [True shadow_modeld Prototype](docs/SHADOW_MODELD_PROTOTYPE_KR.md)
+11. [개발 현황](docs/DEVELOPMENT_STATUS_KR.md)
 
 ---
 

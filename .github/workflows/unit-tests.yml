@@ -2,7 +2,7 @@ name: unit-tests
 
 on:
   push:
-    branches: [main, dev-shadow-pairing-carrot-analysis]
+    branches: [main, "dev-*"]
   pull_request:
     branches: [main]
 
@@ -16,7 +16,11 @@ jobs:
           python-version: '3.12'
       - name: Install test dependency
         run: python -m pip install --upgrade pytest
+      - name: Compile Python sources
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m compileall -q egpu_future tools integrations
       - name: Run pure-Python tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: pytest -q tests/test_recovery_state_machine.py tests/test_frame_pairing.py tests/test_output_validator.py
+        run: pytest -q tests
