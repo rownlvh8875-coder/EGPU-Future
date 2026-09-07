@@ -45,12 +45,7 @@ def _field(event: Any, key: str, default=None):
 
 
 def normalize_profile_event(event: Any) -> KernelRange | None:
-  """Normalize a tinygrad range event or dict without importing tinygrad.
-
-  tinygrad ProfileRangeEvent fields are currently `device`, `name`, `st`, and
-  `en`. HCQ timestamps are represented in microseconds, so this module keeps
-  the normalized clock in microseconds and reports durations in milliseconds.
-  """
+  """Normalize a tinygrad range event or dict without importing tinygrad."""
   device = _field(event, "device")
   name = _field(event, "name")
   st = _field(event, "st", _field(event, "start_us"))
@@ -70,7 +65,6 @@ def device_clock_offsets_us(events: Iterable[Any]) -> dict[str, float]:
   for event in events:
     device = _field(event, "device")
     tdiff = _float(_field(event, "tdiff"))
-    # Range events have st/en; device-clock events do not.
     if device is None or tdiff is None or _field(event, "st") is not None:
       continue
     offsets[str(device)] = tdiff
@@ -82,6 +76,7 @@ def normalize_profile_events(
   device_prefix: str | None = None,
   *,
   align_to_host: bool = False,
+  exact_device: bool = False,
 ) -> list[KernelRange]:
   events_list = list(events)
   offsets = device_clock_offsets_us(events_list) if align_to_host else {}
@@ -90,13 +85,13 @@ def normalize_profile_events(
     row = normalize_profile_event(event)
     if row is None:
       continue
-    if device_prefix is not None and not row.device.upper().startswith(device_prefix.upper()):
-      continue
+    if device_prefix is not None:
+      if exact_device and row.device.upper() != device_prefix.upper():
+        continue
+      if not exact_device and not row.device.upper().startswith(device_prefix.upper()):
+        continue
     if align_to_host:
-      offset = offsets.get(row.device)
-      if offset is None:
-        # Match tinygrad viz semantics: no offset means no clock correction.
-        offset = 0.0
+      offset = offsets.get(row.device, 0.0)
       row = replace(row, start_us=row.start_us + offset, end_us=row.end_us + offset)
     out.append(row)
   return sorted(out, key=lambda r: (r.start_us, r.end_us, r.device, r.name))
@@ -171,16 +166,28 @@ def summarize_kernel_ranges(rows: list[KernelRange], top_n: int = 20) -> dict:
   }
 
 
-def summarize_profile_events(events: Iterable[Any], device_prefix: str = "QCOM", top_n: int = 20) -> dict:
+def summarize_profile_events(
+  events: Iterable[Any],
+  device_prefix: str = "QCOM",
+  top_n: int = 20,
+  *,
+  include_subdevices: bool = False,
+) -> dict:
   events_list = list(events)
-  raw_rows = normalize_profile_events(events_list, device_prefix=device_prefix)
-  host_rows = normalize_profile_events(events_list, device_prefix=device_prefix, align_to_host=True)
+  exact = not include_subdevices
+  raw_rows = normalize_profile_events(events_list, device_prefix=device_prefix, exact_device=exact)
+  host_rows = normalize_profile_events(events_list, device_prefix=device_prefix, align_to_host=True, exact_device=exact)
   offsets = device_clock_offsets_us(events_list)
+  offset_rows = {
+    k: v for k, v in offsets.items()
+    if (k.upper().startswith(device_prefix.upper()) if include_subdevices else k.upper() == device_prefix.upper())
+  }
   return {
-    "devicePrefix": device_prefix,
+    "deviceSelector": device_prefix,
+    "includeSubdevices": include_subdevices,
     "timingBasis": "tinygrad HCQ ProfileRangeEvent hardware timestamps",
     "timestampUnit": "microseconds",
-    "deviceClockOffsetsUs": {k: v for k, v in offsets.items() if k.upper().startswith(device_prefix.upper())},
+    "deviceClockOffsetsUs": offset_rows,
     "rawDeviceClock": summarize_kernel_ranges(raw_rows, top_n=top_n),
     "hostAlignedClock": summarize_kernel_ranges(host_rows, top_n=top_n),
   }
