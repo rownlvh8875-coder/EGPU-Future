@@ -4,12 +4,12 @@
 Current supported production-like research mode:
   active Chestnut/USB-GPU big model + shadow on-device small model.
 
-The process publishes no cereal services and never sends vehicle commands.  It
+The process publishes no cereal services and never sends vehicle commands. It
 requires exact input snapshots from `ModeldShadowTapBridge` and writes shadow
 results to JSONL for later frameId pairing with the active modelV2 log.
 
 This file supports the currently analyzed official openpilot and Carrot eGPU
-ModelState APIs.  It is intentionally manual-start only.  Do not add it to
+ModelState APIs. It is intentionally manual-start only. Do not add it to
 manager/process_config until resource and latency measurements prove that it
 cannot perturb the active model path.
 """
@@ -46,6 +46,10 @@ def _backend(value: str) -> Backend:
     return Backend(value)
   except ValueError:
     return Backend.UNKNOWN
+
+
+def _frame_age(snap: ShadowInputSnapshot) -> int:
+  return max(0, snap.state_frame_id - snap.frame_id) if snap.state_frame_id > snap.frame_id else 0
 
 
 def _apply_resource_isolation(nice_value: int, cpu_affinity: str | None) -> dict:
@@ -139,7 +143,7 @@ def _run_model_compat(model, bufs, transforms, inputs, after_enqueue):
     return model.run(bufs, transforms, inputs, after_enqueue)
   if "prepare_only" in run_params:
     # Carrot has separate warp/policy stages but no enqueue callback in the
-    # public ModelState.run signature.  Keep the timestamp absent rather than
+    # public ModelState.run signature. Keep the timestamp absent rather than
     # inventing one.
     return model.run(bufs, transforms, inputs, False)
   raise RuntimeError(f"unsupported ModelState.run signature: {tuple(run_params)}")
@@ -156,7 +160,7 @@ def _action_compat(model_output: dict, prev_action, snap: ShadowInputSnapshot, p
   base_args = (model_output, prev_action, float(snap.action_t[0]), float(snap.action_t[1]), snap.v_ego)
   if "lat_smooth_seconds" in action_params:
     # Current Carrot extends the official action function with dynamic lateral
-    # smoothing and VEgoStopping.  Reuse the same implementation and Params.
+    # smoothing and VEgoStopping. Reuse the same implementation and Params.
     base_lat_smooth = params.get_float("LatSmoothSec") * 0.01
     v_ego_stopping = params.get_float("VEgoStopping") * 0.01
     dyn_fn = getattr(modeld_module, "get_lat_smooth_seconds_dynamic", None)
@@ -170,6 +174,8 @@ def _record_skip(out, snap: ShadowInputSnapshot, reason: str, extra: dict | None
     "type": "skip",
     "frameId": snap.frame_id,
     "frameIdExtra": snap.frame_id_extra,
+    "stateFrameId": snap.state_frame_id,
+    "frameAge": _frame_age(snap),
     "activeBackend": snap.active_backend,
     "shadowBackend": "small",
     "reason": reason,
@@ -209,7 +215,7 @@ def main() -> int:
   main_client = _connect_client(main_stream)
   extra_client = _connect_client(wide_stream) if use_extra else None
 
-  # Only the on-device model is supported by this first live prototype.  This
+  # Only the on-device model is supported by this first live prototype. This
   # avoids a second process contending for Chestnut/USB resources.
   shadow_backend = Backend.SMALL
   admission = ShadowAdmissionController(shadow_backend, AdmissionPolicy(max_hz=args.max_hz, require_opposite_backend=True))
@@ -303,6 +309,9 @@ def main() -> int:
         _write_event(out, {
           "type": "shadow_error",
           "frameId": snap.frame_id,
+          "frameIdExtra": snap.frame_id_extra,
+          "stateFrameId": snap.state_frame_id,
+          "frameAge": _frame_age(snap),
           "activeBackend": snap.active_backend,
           "shadowBackend": "small",
           "error": repr(exc),
@@ -345,6 +354,8 @@ def main() -> int:
         "type": "shadow_output",
         "frameId": snap.frame_id,
         "frameIdExtra": snap.frame_id_extra,
+        "stateFrameId": snap.state_frame_id,
+        "frameAge": _frame_age(snap),
         "cameraTimestampSofNs": snap.camera_sof_ns,
         "cameraTimestampEofNs": snap.camera_eof_ns,
         "tapCreatedMonoNs": snap.created_mono_ns,
