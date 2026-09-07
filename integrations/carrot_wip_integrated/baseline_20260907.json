@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 3,
+  "capturedDate": "2026-09-07",
+  "base": {
+    "repository": "ajouatom/openpilot",
+    "branch": "carrot-wip",
+    "head": "6f4c00e625dc3d41d3776427a272a5c3fed75e6c",
+    "previousReviewedHead": "b2a2db5590f28af420ed01e75c145ddb8ddd90d6",
+    "headAdvanceReview": {
+      "commits": 1,
+      "summary": "Hyundai PV5 navigation section-speed support only; no pinned eGPU/modeld critical file changed",
+      "modeldBlobUnchanged": true
+    },
+    "files": {
+      "openpilot/selfdrive/modeld/modeld.py": "e4de3eb2236f6bb0c54c87666099147311602f4f",
+      "openpilot/selfdrive/modeld/helpers.py": "151eead3ab6ff7705cd405cf6c88a47c56414b4c",
+      "openpilot/selfdrive/modeld/big_model.py": "1ab10ddb3c64cba7b29e8662deaab03c3ffda1ad",
+      "openpilot/system/hardware/usbgpu.py": "a9814881897f7977443ee998a3b5dbbeb169541e",
+      "openpilot/common/usbgpu_bus_lock.py": "3218ea969d43c929ee50d3dcdcb1685920f71207",
+      "tinygrad_repo/tinygrad/runtime/ops_amd.py": "c94f78ebb52c0d329ab43f085413aa8a75eb7a46",
+      "tinygrad_repo/tinygrad/runtime/support/am/ip.py": "bbe1804230c5f276ec44d8aca2d465f21b8d2b52",
+      "tinygrad_repo/tinygrad/runtime/support/usb.py": "2214a1a7c7f8ca6fffd4efd72b88ea3b37171490",
+      "tinygrad_repo/extra/amdpci/am_smi.py": "c6aa3cfe06afbb5294ad090b50b02be747f8c8b8"
+    }
+  },
+  "references": {
+    "comma": {
+      "repository": "commaai/openpilot",
+      "branch": "master",
+      "head": "65c411433bebe2833825651b2ad2eedb418172ee",
+      "adopt": ["Chestnut telemetry semantics", "AMD hardware health", "read-only SMU telemetry", "upstream safety boundaries"]
+    },
+    "sunnypilot": {
+      "repository": "sunnypilot/sunnypilot",
+      "branch": "staging-chestnut",
+      "head": "787f5f4aa9d0d15532971da50c07e410091d01c4",
+      "modeldV2Blob": "683def658857bf504e719ca620a2b6fd1004305e",
+      "modelHelpersBlob": "a1a392c5eef1183935ccc076ced33b302dbfed46",
+      "adopt": ["separate QCOM/eGPU model slots", "bundle hash validation", "multi-generation model metadata"]
+    },
+    "carrotExperimental": {
+      "repository": "ajouatom/openpilot",
+      "branch": "carrot-egpu-yolo2",
+      "head": "169aca698a9947353f1dc6476983336202f58070",
+      "adopt": ["same-frame fallback", "bounded optional workloads", "latest-only CPU postprocess isolation"]
+    }
+  },
+  "stage2Telemetry": {
+    "policy": "read-only-background-thread",
+    "defaultEnabled": false,
+    "nominalIntervalSeconds": 2.0,
+    "transportLocking": {
+      "supplyAndPcie": "explicit Carrot usbgpu_bus_lock",
+      "smu": "tinygrad USB transport uses the same Carrot usbgpu_bus_lock per transaction"
+    },
+    "fields": ["tempC", "memoryTempC", "powerDrawW", "powerLimitW", "gpuUsagePercent", "gpuClockMhz", "fanSpeedRpm", "supplyVoltageMv", "supplyCurrentMa", "supplyFault", "pcieLtssm", "usbSpeedMbps", "usbLinkErrorCount", "firmwareCurrent"],
+    "explicitNonGoals": ["no PPT writes", "no fan writes", "no PCIe reset", "no USB reset", "no control-path decisions from telemetry"]
+  },
+  "stage4B": {
+    "firstShadowMaxHz": 5.0,
+    "manualStartOnly": true,
+    "managerAutostart": false,
+    "stationaryRequired": true,
+    "parkGearRequired": true,
+    "latLongControlsInactiveRequired": true,
+    "controlsPublishAllowed": false
+  }
+}
