@@ -1,302 +1,306 @@
 # EGPU-Future
 
-comma 4 + Chestnut/eGPU 이후의 openpilot 계열 자율주행 발전 방향을 조사·분석하는 저장소입니다.
+comma 4 + Chestnut/eGPU 이후의 openpilot 계열 자율주행 발전 방향을 조사하고, 실제 차량에서 검증 가능한 형태로 구현하는 연구 저장소입니다.
 
-이 저장소의 목표는 단순히 "GPU를 달아 openpilot을 빠르게 만드는 것"이 아닙니다.
+목표는 단순히 GPU를 달아 FPS를 올리는 것이 아닙니다.
 
-**더 큰 driving/world model을 실차에서 사용할 수 있게 된 이후, 센서·학습·안전·전원·열·통신·fallback까지 포함한 vehicle-integrated autonomy architecture를 설계하는 것**을 목표로 합니다.
-
----
-
-## 핵심 결론
-
-**eGPU의 가장 큰 가치는 FPS 향상이 아니라, 지금까지 comma 4의 약 10 W급 온디바이스 연산 한계 때문에 사용할 수 없었던 훨씬 큰 driving/world model을 실차에서 실행하고, 그 big model을 전체 openpilot 생태계의 teacher/evaluator로 활용할 수 있다는 점입니다.**
-
-따라서 바람직한 방향은 comma 4를 버리고 eGPU가 모든 것을 담당하게 하는 구조가 아닙니다.
-
-- **comma 4 / Guardian:** 카메라 입력, 차량 인터페이스, 상태 추정, DMS, health/deadline 감시, small-model fallback
-- **eGPU / Intelligence:** large driving model, temporal context, scene reasoning, 향후 world model
-- **Safety Validator:** big-model output과 실제 vehicle command 사이의 독립 제약 계층
-- **Learning Plane:** small/big disagreement, hard-case mining, replay/simulation, teacher→student distillation
-- **차량 제어:** 기존 차량별 actuator 한계와 panda/openpilot safety constraint 유지
-
-이 구조를 **Guardian + Intelligence Sidecar**라고 부릅니다.
+**더 큰 driving/world model을 실차에서 사용할 수 있게 된 이후 센서·학습·안전·전원·열·통신·fallback·replay 검증까지 포함한 vehicle-integrated autonomy architecture를 만드는 것**을 목표로 합니다.
 
 ---
 
-# 왜 지금 eGPU인가
+## 핵심 방향: Guardian + Intelligence Sidecar
 
-comma.ai는 2026-08-12 Chestnut을 공개하면서 다음을 발표했습니다.
+- **comma four / Guardian**: 카메라 입력, 차량 인터페이스, 상태추정, DMS, health/deadline 감시, small-model fallback
+- **eGPU / Intelligence**: large driving model, 긴 temporal context, scene reasoning, 향후 world model
+- **Safety/Output Validator**: frame freshness, latency, action disagreement, vehicle feasibility를 독립 검증
+- **Learning Plane**: small/big disagreement, hard-case mining, replay/simulation, teacher→student distillation
+- **차량 제어**: 차량별 actuator 한계와 panda/openpilot safety constraint 유지
 
-- comma four와 외장 desktop GPU를 연결하는 compute upgrade
-- 기존 on-device model 대비 약 30배 parameters, 약 100배 FLOPs
-- comma four + Chestnut compute를 Tesla HW4와 유사하다고 설명
-- Ready-to-Drive 구성은 AMD Radeon RX 9060 8GB
-- GPU를 passenger footwell 또는 passenger seat 아래에 설치하고 vehicle 12 V power를 사용
-
-### 정확성 메모
-
-Chestnut launch blog는 모델을 **"1B parameter"**라고 소개하지만 현재 openpilot 0.11.2 공식 `RELEASES.md`는 **"Big model with 880M parameters"**라고 명시합니다.
-
-따라서 이 저장소에서는 **1B급 모델(공식 release-note 정확값 880M)**로 취급합니다.
-
-또한 comma.ai의 "Tesla HW4와 유사한 compute" 표현은 compute 비교이지 Tesla 차량 전체 센서·전원·제어·안전 architecture와 동등하다는 독립 검증 결과가 아닙니다.
+**AI capability ≠ vehicle control capability**입니다. eGPU가 커져도 OEM EPS torque/angle-rate, longitudinal authority, 센서 blind spot은 자동으로 해결되지 않습니다.
 
 ---
 
-# 다른 자율주행 프로젝트에서 얻은 결론
+# Chestnut이 바꾸는 것
 
-| 프로젝트 | 핵심 접근 | EGPU-Future가 가져올 부분 |
+comma.ai는 2026-08-12 Chestnut을 공개했습니다.
+
+확인된 방향:
+
+- comma four + 외장 desktop GPU
+- 기존 on-device model 대비 약 30배 parameter, 약 100배 FLOPs라는 launch 설명
+- Ready-to-Drive 구성의 AMD Radeon RX 9060 8GB
+- passenger footwell 또는 passenger seat 아래 설치
+- vehicle 12 V power 사용
+
+정확성 메모:
+
+- Chestnut launch blog는 `1B parameter`라고 표현
+- 현재 openpilot 0.11.2 `RELEASES.md`는 **880M parameters**라고 명시
+
+따라서 이 저장소에서는 **1B급 모델(공식 release-note 정확값 880M)**로 구분합니다.
+
+comma.ai의 `Tesla HW4와 유사한 compute` 표현은 compute 비교이며 Tesla 전체 센서·전원·안전·차량제어 architecture와 동등하다는 독립검증 결과로 취급하지 않습니다.
+
+---
+
+# 다른 자율주행 프로젝트에서 가져올 부분
+
+| 프로젝트 | 핵심 접근 | EGPU-Future 적용 |
 |---|---|---|
-| Tesla FSD | fleet data + end-to-end + factory-integrated surround vision | big→small distillation, fleet learning loop |
-| Wayve | end-to-end Embodied AI / foundation model | generalizable driving model, large evaluator/world model |
-| Waymo | camera+lidar+radar redundancy + HD-map prior + simulation | world-model validation, long-tail scenario simulation |
-| Mobileye | True Redundancy + RSS + 단계적 compute/sensor 확대 | independent safety envelope |
-| Autoware | modular validation + shadow mode + mixed criticality | eGPU와 safety-critical guardian 분리 |
-| Apollo | perception/prediction/planning/control 모듈화 | observability와 fault localization |
-| NVIDIA DRIVE | automotive-grade high-compute + multimodal sensors + safety platform | compute보다 system integration이 중요하다는 교훈 |
+| Tesla | fleet data + end-to-end + distillation + factory-integrated vision | big→small distillation, fleet learning loop |
+| Wayve | end-to-end Embodied AI / foundation model | generalizable large driving/evaluator model |
+| Waymo | camera+lidar+radar redundancy + simulation/world model | long-tail validation, world-model evaluation |
+| Mobileye | True Redundancy + RSS | independent safety envelope |
+| Autoware | modular validation + mixed criticality | intelligence와 guardian 분리 |
+| Apollo | perception/prediction/planning/control 모듈화 | observability / fault localization |
+| NVIDIA DRIVE | automotive-grade integrated compute/sensors | FLOPS보다 system integration이 중요 |
 
-상세 비교: [자율주행 아키텍처 비교와 EGPU-Future 적용 방향](docs/AUTONOMY_ARCHITECTURE_COMPARISON_KR.md)
-
----
-
-# Tesla와 openpilot의 가장 중요한 차이
-
-Tesla는 factory-integrated vehicle architecture에서 8개의 외부 카메라와 자체 inference hardware, 차량 전체 control/data pipeline을 통합합니다.
-
-openpilot은 기존 차량의 CAN network와 OEM ADAS가 허용하는 steering/brake/acceleration interface를 활용하는 retrofit 시스템입니다.
-
-또한 comma four 상품 설명의 "360° vision" 표현과 Tesla의 **8 external camera surround sensing**을 같은 것으로 보면 안 됩니다. openpilot이 기록하는 camera stream은 road, wide-road, driver camera로 정의돼 있습니다.
-
-따라서:
-
-> **eGPU는 두뇌를 크게 만들지만, 센서가 보지 못하는 side/rear 정보를 새로 만들지는 않습니다.**
-
-장기적으로 L3+를 목표로 한다면 compute 증설과 별도로 sensor/actuation redundancy roadmap이 필요합니다.
+상세: [자율주행 아키텍처 비교](docs/AUTONOMY_ARCHITECTURE_COMPARISON_KR.md)
 
 ---
 
-# Tesla에서 특히 중요한 힌트: Distillation
+# ajouatom Carrot eGPU에서 확인한 중요한 아이디어
 
-Tesla는 2026 Q2 자료에서 AI3용 FSD v14 lite가 **AI4 v14 series의 driving behavior를 AI3 camera/compute configuration으로 distill**한다고 직접 설명했습니다.
+분석한 branch:
 
-이는 EGPU-Future의 가장 중요한 장기 방향과 일치합니다.
+- `carrot-egpu-yolo`
+- `thftgr/carrot-egpu`
+- `thftgr/carrot-egpu-tg`
 
-```text
-Chestnut Big Model
-      │
-      ├─ hard-case discovery
-      ├─ teacher labels / behavior
-      ├─ disagreement mining
-      ▼
-comma-four Small Model
-      │
-      ▼
-전체 일반 openpilot fleet 개선
-```
+현재 `carrot-egpu-yolo`에서 특히 가치 있는 설계:
 
-즉 Chestnut 장착 차량의 가치가 장착 차량만의 성능 향상에 그치지 않도록 해야 합니다.
+1. eGPU startup grace
+2. PCIe readiness retry
+3. model loader timeout/상태 observability
+4. 사용자 의도적 disable과 fault 구분
+5. eGPU runtime 실패 시 **이미 로드된 internal model로 같은 camera frame 재실행**
+6. YOLO/RoadSeg/Lane 등 eGPU sidecar perception 실험
 
----
+EGPU-Future에서는 전체 Carrot branch를 합치지 않고 기능 단위로 재구현합니다.
 
-# 차량 전원·열·소음 문제
+현재 반영:
 
-Ready-to-Drive의 RX 9060은 AMD 공식 기준 **132 W Typical Board Power**입니다.
+- `EgpuState.DISABLED`
+- official Chestnut power profile = 5000 mV
+- current Carrot USB-GPU profile = 8000 mV
+- deterministic frameId pairing
+- frame freshness/deadline/action validator
+- same-frame hot-fallback latency budget evaluator
 
-단순 계산상:
-
-- 12 V에서 GPU만 이상적으로 약 **11.0 A**
-- 90% conversion efficiency를 가정하면 약 **12.2 A**
-- 연구차량용 180 W system budget을 가정하면 12 V / 90%에서 약 **16.7 A**
-
-180 W는 comma 공식 요구사항이 아니라 overhead와 margin을 포함하기 위한 EGPU-Future의 초기 설계 기준입니다.
-
-따라서 장기 연구차량에서는 cigarette lighter만을 전제로 하기보다 다음을 검토합니다.
-
-```text
-Vehicle low-voltage bus
-   → source-side fuse
-   → reverse-polarity / transient protection
-   → automotive wide-input DC/DC
-   → ignition/ACC controlled enable
-   → low-voltage cutoff
-   → voltage/current telemetry
-   → Chestnut + GPU
-```
-
-실제 차량별 outlet fuse/rating과 배선 허용전류는 반드시 별도 확인하며 OEM wiring보다 fuse만 크게 변경하지 않습니다.
-
-상세 설계: [차량용 eGPU 전원·발열·팬소음·신뢰성 통합 설계](docs/VEHICLE_EGPU_POWER_THERMAL_INTEGRATION_KR.md)
-
----
-
-# 발열·팬소음은 software로도 줄일 수 있음
-
-추가 소스 분석 결과, `tinygrad` AMD SMU 구현에는 실제 GPU PPT를 바꾸는 `set_power_limit(watts)`가 존재합니다.
-
-현재 openpilot Chestnut code는 power limit을 telemetry로 읽지만 조사한 master code에서는 이 기능을 closed-loop thermal/noise control에 적극 사용하지 않습니다.
-
-따라서 EGPU-Future에서는 다음 실험이 가능합니다.
-
-```text
-Default GPU PPT
-   ↓ 10 W step sweep
-GPU power / temperature / fan RPM 측정
-   +
-p95/p99 model latency / frame drop 측정
-   ↓
-20 Hz deadline을 안정적으로 만족하는
-가장 낮은 GPU power point 선택
-```
-
-현재 model loop는 20 Hz이므로 nominal period는 50 ms입니다. 초기 연구 기준으로 p99 model execution을 40 ms 이하로 두는 등 margin을 적용해 볼 수 있으나, 이는 공식 openpilot 기준이 아니라 실제 end-to-end 측정으로 수정할 연구값입니다.
-
-상세 설계: [Chestnut Adaptive Power / Thermal / Noise Control](docs/CHESTNUT_POWER_THERMAL_CONTROL_DESIGN_KR.md)
-
----
-
-# 싼타페 적용 방향
-
-현재 사용자의 싼타페 정확 연식/세대가 확인되지 않아 MX5와 TM을 모두 조사했다. 두 세대의 공식 매뉴얼 모두 12 V accessory/power outlet을 **180 W 이하**로 규정한다.
-
-RX 9060의 132 W TBP는 숫자상 180 W 안에 들어오지만 power-stage 손실, Chestnut 자체 소비전력, 순간부하까지 고려해야 하므로 초기에는 순정 outlet으로 계측하고 장기적으로 dedicated fused power path 여부를 결정한다.
-
-설치 위치 우선순위는:
-
-1. 조수석 하부 독립 tray + intake/exhaust 분리
-2. 조수석 발밑 보호 bracket — 초기 시험
-3. 화물칸 — USB 길이/5 Gbps link 별도 검증 후
-
-상세: [싼타페 + Chestnut/eGPU 설치 설계](docs/SANTAFE_CHESTNUT_INSTALLATION_KR.md)
+상세: [ajouatom Carrot eGPU 브랜치 분석](docs/AJOUATOM_CARROT_EGPU_ANALYSIS_KR.md)
 
 ---
 
 # RX 9060과 Chestnut만 가능한가?
 
-아니다. comma는 공식적으로 **Chestnut eGPU dock only를 자기 GPU와 power supply로 사용할 수 있다고 판매**한다.
+**RX 9060만 가능한 것은 아닙니다.** comma는 Chestnut `eGPU dock only` 옵션을 자신의 GPU와 power supply로 사용할 수 있도록 판매합니다.
 
-다만 현재 openpilot big-model build는 `DEV=USB+AMD:LLVM`을 사용하고 runtime telemetry도 `Device["AMD"]`를 직접 읽는다. 또한 comma four는 Chestnut-specific USB ID와 custom firmware를 확인한다.
+다만 현재 openpilot big-model 경로는:
 
-따라서:
+- `USB+AMD` tinygrad backend
+- Chestnut-specific USB ID/custom firmware
+- AMD telemetry/SMU 접근
 
-- Chestnut + RX 9060 = 공식 baseline
-- Chestnut + 다른 AMD GPU = 실험 가능, 개별 검증 필요
-- NVIDIA GPU = 현재 Chestnut openpilot path의 plug-and-play 지원으로 볼 수 없음
-- 일반 USB4/Thunderbolt eGPU dock = 현재 release의 Chestnut drop-in 대체품으로 확인되지 않음
+에 강하게 연결되어 있습니다.
 
-초기 연구에서는 **dock은 Chestnut으로 고정하고 GPU/PPT만 변경**하는 것이 가장 합리적이다.
+따라서 현재 연구 우선순위:
 
-상세: [Chestnut GPU / eGPU Dock 호환성 분석](docs/GPU_DOCK_COMPATIBILITY_KR.md)
+- **Chestnut + RX 9060**: 공식 baseline
+- **Chestnut + 다른 AMD GPU**: 검증 대상
+- **NVIDIA GPU**: 현재 경로의 plug-and-play 지원으로 간주하지 않음
+- **일반 USB4/Thunderbolt eGPU dock**: Chestnut drop-in 대체품으로 확인되지 않음
 
----
+초기에는 **dock은 Chestnut으로 고정하고 GPU/PPT만 바꾸는 방식**이 원인분리에 가장 유리합니다.
 
-# 현재 openpilot에 이미 있는 Chestnut health telemetry
-
-현재 master에는 다음이 이미 존재합니다.
-
-- GPU hotspot temperature
-- memory temperature
-- GPU power draw / power limit
-- GPU usage / clock
-- fan RPM
-- PCIe state
-- supply voltage / current / fault
-
-현재 Chestnut status code에는:
-
-- GPU temp limit: **100 °C**
-- memory temp limit: **95 °C**
-- hysteresis: **5 °C**
-
-도 구현되어 있습니다.
-
-따라서 새 하드웨어 센서를 먼저 만드는 것보다 이 데이터를 **proactive de-rate / health policy / retry / route analytics**에 연결하는 것이 우선입니다.
+상세: [GPU / eGPU Dock 호환성 분석](docs/GPU_DOCK_COMPATIBILITY_KR.md)
 
 ---
 
-# 전원 문제는 이미 실사용에서 나타나고 있음
+# 전원·발열·소음
 
-openpilot issue #38685에는 Hyundai Sonata remote start 시 cigarette lighter가 powered되지 않아 GPU가 무전원 상태이고 big model load가 timeout되는 사례가 보고돼 있습니다.
+RX 9060 공식 Typical Board Power는 **132 W**입니다.
 
-현재 openpilot에는 big model exception 발생 시 small model fallback이 이미 구현되어 있지만, 같은 drive cycle에서 eGPU power가 나중에 복원됐을 때 자동으로 big model을 다시 살리는 완전한 hot-recovery state machine은 현재 조사한 코드에서 확인되지 않았습니다.
+단순 계산:
 
-따라서 우선 구현 후보는:
+- 12 V 이상적: 약 11.0 A
+- 12 V, 변환효율 90%라는 연구 가정: 약 12.2 A
+
+하지만 GPU TBP 외에 Chestnut, 변환손실, 케이블/접점손실, transient가 존재하므로 12 V outlet의 정격과 단순 비교만으로 충분하지 않습니다.
+
+장기 연구차량 전원 구조 후보:
 
 ```text
+Vehicle low-voltage bus
+ → source-side fuse
+ → reverse-polarity/transient protection
+ → automotive power stage
+ → ACC/ignition controlled enable
+ → low-voltage cutoff
+ → voltage/current telemetry
+ → Chestnut + GPU
+```
+
+GPU 열/소음은 fan만 키우기보다 **deadline을 만족하는 최저 PPT를 찾는 방식**을 우선합니다.
+
+tinygrad AMD SMU에는 `set_power_limit(watts)`가 존재하지만 현재 EGPU-Future는 자동 PPT 변경을 차량 주행경로에 연결하지 않습니다.
+
+순서:
+
+```text
+read-only logging
+ → manual PPT sweep
+ → stable operating envelope
+ → advisory controller
+ → shadow automatic controller
+ → 충분한 검증 후 제한적 자동 적용 검토
+```
+
+상세:
+
+- [차량용 eGPU 전원·발열·소음 통합설계](docs/VEHICLE_EGPU_POWER_THERMAL_INTEGRATION_KR.md)
+- [Adaptive Power / Thermal / Noise Control](docs/CHESTNUT_POWER_THERMAL_CONTROL_DESIGN_KR.md)
+
+---
+
+# 적용 차량
+
+실차 기준은 다음으로 확정했습니다.
+
+**더 뉴 싼타페 TM / 2021년식 / Smartstream D2.2 디젤 / 2WD / 5인승 / 프레스티지 / 조수석 전동시트 + 통풍시트**
+
+현재 권장 순서:
+
+1. 조수석 발밑 rigid temporary tray에서 초기 검증
+2. 순정 12 V outlet + comma power cable로 read-only 계측
+3. cold/warm start + ISG stop/restart + heat soak 기록
+4. manual PPT sweep
+5. fan RPM / cabin dBA / latency 비교
+6. 전원 안정성이 확인되면 순정 outlet 유지 여부 판단
+7. 조수석 통풍 blower/duct, 전동시트 swept volume, SRS harness를 피한 최종 under-seat bracket 검토
+
+한국형 VIN 기준 현대 GSW 도면의 최종 mm 치수/전용 전원선 설계는 실차 측정과 공식도면 확보 후 확정합니다.
+
+상세:
+
+- [2021 더 뉴 싼타페 TM D2.2 프레스티지 전용 설치안](docs/SANTAFE_TM_2021_D22_PRESTIGE_INSTALL_KR.md)
+- [싼타페 일반 설치 검토](docs/SANTAFE_CHESTNUT_INSTALLATION_KR.md)
+
+---
+
+# 현재 구현된 연구 코드
+
+## Telemetry / power
+
+- `tools/chestnut_telemetry_logger.py`
+- `tools/analyze_ppt_sweep.py`
+
+## Recovery
+
+- `egpu_future/recovery_state_machine.py`
+- `tools/recovery_simulator.py`
+
+현재 상태:
+
+```text
+DISABLED
 DISCONNECTED
  → POWER_WAIT
  → USB_READY
  → PCIE_READY
  → MODEL_WARMUP
- → ACTIVE
- → DERATED / FALLBACK
+ → ACTIVE ↔ DERATED
+ → FALLBACK
  → RETRY_WAIT
- → safe hot-retry
+ → MODEL_WARMUP
 ```
 
-입니다.
+## Small/Big replay·shadow
+
+- `tools/extract_model_actions_from_log.py`
+- `egpu_future/frame_pairing.py`
+- `tools/pair_shadow_runs.py`
+- `egpu_future/shadow_metrics.py`
+- `tools/compare_shadow_runs.py`
+- `egpu_future/output_validator.py`
+- `tools/validate_paired_shadow.py`
+- `egpu_future/scenario_tagger.py`
+- `tools/summarize_shadow_events.py`
+- `tools/latency_profiler.py`
+- `tools/hot_fallback_budget.py`
+
+핵심은 **timestamp가 아니라 `modelV2.frameId`를 우선키로 small/big을 1:1 pairing**하는 것입니다.
+
+실행 절차: [Small / Big Model Replay·Shadow 검증 절차](docs/SHADOW_REPLAY_PIPELINE_KR.md)
+
+개발현황: [DEVELOPMENT_STATUS_KR.md](docs/DEVELOPMENT_STATUS_KR.md)
 
 ---
 
-# 이 저장소에서 우선 검증할 연구 과제
+# 검증 원칙
 
-1. **Dual-model shadow runner** — small/big model 동일 route 동시 추론
-2. **Disagreement logger** — 두 model 판단이 달라진 hard case 자동 저장
-3. **Latency observability** — camera → preprocess → USB → eGPU → action end-to-end latency
-4. **Chestnut health recorder** — voltage/current/temp/power/fan/PCIe/USB 연속 기록
-5. **Adaptive PPT controller** — model deadline을 만족하는 최소 안정 전력점 탐색
-6. **Recovery state machine** — late power, GPU reset, USB reconnect 후 안전한 retry
-7. **Scenario evaluator** — 급곡선, cut-in, 정체출발, cone, lane merge, lead lost/acquired
-8. **Independent action/trajectory validator** — eGPU output의 vehicle feasibility 검증
-9. **Fallback validation** — eGPU fault 시 small model 전환의 연속성과 안정성 검증
-10. **Teacher/student pipeline** — big model behavior를 small model 개선에 활용
-11. **World-model evaluation** — long-tail 상황을 replay/generative simulation에서 반복 검증
-12. **Santa Fe install qualification** — power-sequence/heat-soak/noise/seat-clearance/USB routing 검증
-13. **GPU compatibility matrix** — 동일 Chestnut에서 AMD GPU별 performance/W/thermal/noise 비교
+현재 `output_validator`는 raw tensor 전체의 단일 통계값 대신 다음을 분리합니다.
+
+Hard issue:
+
+- frameId mismatch
+- stale frame
+- non-finite action
+- model execution deadline miss
+
+Review event:
+
+- desiredCurvature disagreement
+- desiredAcceleration disagreement
+- shouldStop mismatch
+
+현재 45 ms execution threshold, proactive 90/85 °C derate 등은 **EGPU-Future 연구 초기값**이며 공식 comma safety 기준이 아닙니다.
 
 ---
 
-# 개발 단계
+# 자동 테스트
 
-## Stage A — Supervised L2 Excellence
+`.github/workflows/unit-tests.yml`
 
-현재 센서/actuator 범위에서 highway/arterial stability, curve, cut-in, lead behavior, congestion, construction/cones, merge 성능과 reliability를 최대화합니다.
+현재 pure-Python 영역에 대해 자동테스트:
 
-## Stage B — Route-aware L2+
+- recovery state machine
+- official/Carrot backend profiles
+- user disable semantics
+- deterministic frame pairing
+- no sample reuse / ambiguity rejection
+- output freshness/deadline/action validation
 
-richer route context, side/rear sensing 또는 OEM sensor access 확대, stronger independent validator를 연구합니다.
+hardware/openpilot integration test는 실제 openpilot/Chestnut 환경에서 별도로 수행합니다.
 
-## Stage C — L3+ 연구
+---
 
-이 단계부터는 eGPU만으로 해결할 수 없습니다. sensor redundancy, actuation diagnostics/redundancy, minimum-risk maneuver, functional-safety level validation이 필요합니다.
+# 다음 개발 단계
+
+1. **true `shadow_modeld` prototype**
+2. camera SOF/EOF → preprocess → GPU enqueue/complete → model publish 상세 timestamp
+3. sampled dual inference의 QCOM/USB/memory/thermal interference 측정
+4. lead acquired/lost, cut-in, merge, construction scenario tag 확장
+5. Carrot YOLO/RoadSeg에서 아이디어를 가져온 sidecar evidence schema
+6. route health report 자동생성
+7. replay fault injection 자동화
+8. 그 다음 advisory PPT controller
+
+처음부터 eGPU 출력을 차량제어에 넣지 않습니다. **replay → shadow → recovery validation → staged integration** 순서로 진행합니다.
 
 ---
 
 # 분석 문서
 
 1. [EGPU 이후 자율주행 기술방향 종합분석](docs/EGPU_AUTONOMY_STRATEGY_KR.md)
-2. [Tesla·Waymo·Wayve·Mobileye·Autoware 등 자율주행 아키텍처 비교](docs/AUTONOMY_ARCHITECTURE_COMPARISON_KR.md)
+2. [자율주행 아키텍처 비교](docs/AUTONOMY_ARCHITECTURE_COMPARISON_KR.md)
 3. [차량용 eGPU 전원·발열·팬소음·신뢰성 통합 설계](docs/VEHICLE_EGPU_POWER_THERMAL_INTEGRATION_KR.md)
-4. [Chestnut Adaptive Power / Thermal / Noise Control 설계](docs/CHESTNUT_POWER_THERMAL_CONTROL_DESIGN_KR.md)
-5. [싼타페 + Chestnut/eGPU 설치 설계](docs/SANTAFE_CHESTNUT_INSTALLATION_KR.md)
-6. [Chestnut GPU / eGPU Dock 호환성 분석](docs/GPU_DOCK_COMPATIBILITY_KR.md)
-
----
-
-# 원칙
-
-이 저장소의 목표는 차량의 OEM 조향/제동 한계나 openpilot safety constraint를 우회하는 것이 아닙니다. 연산 능력 확대는 actuator 권한 확대를 뜻하지 않습니다.
-
-```text
-Real-world capability
-  = model intelligence
-  × sensor coverage
-  × latency reliability
-  × power stability
-  × thermal stability
-  × actuator authority
-  × safe fallback
-```
+4. [Chestnut Adaptive Power / Thermal / Noise Control](docs/CHESTNUT_POWER_THERMAL_CONTROL_DESIGN_KR.md)
+5. [싼타페 일반 설치 검토](docs/SANTAFE_CHESTNUT_INSTALLATION_KR.md)
+6. [2021 싼타페 TM D2.2 프레스티지 전용 설치안](docs/SANTAFE_TM_2021_D22_PRESTIGE_INSTALL_KR.md)
+7. [GPU / eGPU Dock 호환성 분석](docs/GPU_DOCK_COMPATIBILITY_KR.md)
+8. [ajouatom Carrot eGPU 분석](docs/AJOUATOM_CARROT_EGPU_ANALYSIS_KR.md)
+9. [Small / Big Replay·Shadow 파이프라인](docs/SHADOW_REPLAY_PIPELINE_KR.md)
+10. [개발 현황](docs/DEVELOPMENT_STATUS_KR.md)
 
 ---
 
@@ -304,17 +308,16 @@ Real-world capability
 
 - comma.ai Chestnut: https://blog.comma.ai/chestnut/
 - Chestnut product/setup: https://comma.ai/shop/chestnut
-- openpilot source: https://github.com/commaai/openpilot
+- comma official openpilot: https://github.com/commaai/openpilot
 - openpilot releases: https://github.com/commaai/openpilot/blob/master/RELEASES.md
-- Hyundai Santa Fe MX5 owner manual: https://ownersmanual.hyundai.com/manual/%EC%8B%BC%ED%83%80%ED%8E%98?countryCode=A99&langCode=ko_KR&projCode=MX5&year=2025
-- Tesla FSD evidence dashboard: https://www.tesla.com/fsd-evidence-dashboard
-- Waymo World Model: https://waymo.com/blog/2026/02/the-waymo-world-model-a-new-frontier-for-autonomous-driving-simulation/
-- Wayve technology: https://wayve.ai/technology/
-- Mobileye products: https://www.mobileye.com/products/
-- Autoware Open AD Kit: https://github.com/autowarefoundation/openadkit
-- NVIDIA DRIVE Hyperion: https://www.nvidia.com/en-us/solutions/autonomous-vehicles/drive-hyperion/
-- AMD RX 9060: https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9060.html
+- ajouatom/openpilot: https://github.com/ajouatom/openpilot
 - tinygrad AMD runtime: https://github.com/tinygrad/tinygrad/blob/master/tinygrad/runtime/support/am/ip.py
-- comma.ai Reddit community: https://www.reddit.com/r/Comma_ai/
+- AMD RX 9060: https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9060.html
+- Hyundai owner/service resources: https://ownersmanual.hyundai.com/
+- Tesla FSD evidence dashboard: https://www.tesla.com/fsd-evidence-dashboard
+- Waymo: https://waymo.com/
+- Wayve: https://wayve.ai/technology/
+- Mobileye: https://www.mobileye.com/products/
+- Autoware: https://github.com/autowarefoundation/openadkit
 
 Last reviewed: 2026-09-07
