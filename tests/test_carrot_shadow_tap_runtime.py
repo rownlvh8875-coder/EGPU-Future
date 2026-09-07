@@ -1,6 +1,6 @@
-import json
 import socket
 
+from egpu_future.shadow_tap import decode_snapshot
 from integrations.carrot.egpu_future_shadow_tap import EgpuFutureShadowTap
 
 
@@ -16,7 +16,7 @@ def test_disabled_tap_is_noop(tmp_path):
   assert tap.stats()["calls"] == 0
 
 
-def test_enabled_tap_sends_expected_payload(tmp_path):
+def test_enabled_tap_is_protocol_compatible(tmp_path):
   path = str(tmp_path / "shadow.sock")
   recv = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
   recv.bind(path)
@@ -49,13 +49,13 @@ def test_enabled_tap_sends_expected_payload(tmp_path):
     },
   )
   assert ok is True
-  payload = json.loads(recv.recv(8192).decode("utf-8"))
-  assert payload["frame_id"] == 101
-  assert payload["frame_id_extra"] == 102
-  assert payload["state_frame_id"] == 104
-  assert payload["active_backend"] == "big"
-  assert payload["v_ego"] == 12.5
-  assert payload["action_t"] == [0.1, 0.2]
+  snap = decode_snapshot(recv.recv(8192))
+  assert snap.frame_id == 101
+  assert snap.frame_id_extra == 102
+  assert snap.state_frame_id == 104
+  assert snap.active_backend == "big"
+  assert snap.v_ego == 12.5
+  assert snap.action_t == (0.1, 0.2)
   assert tap.stats()["sent"] == 1
 
   tap.close()
