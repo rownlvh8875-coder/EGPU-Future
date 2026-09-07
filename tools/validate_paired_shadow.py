@@ -27,6 +27,8 @@ def candidate(row: dict) -> CandidateOutput:
 def main() -> None:
   ap = argparse.ArgumentParser(description="Validate paired small/big shadow outputs before analysis")
   ap.add_argument("paired_jsonl", type=Path)
+  ap.add_argument("--reference-side", choices=("small", "big"), default="small",
+                  help="which paired side is the active/reference output; live Chestnut shadow uses big")
   ap.add_argument("--max-execution-ms", type=float, default=45.0)
   ap.add_argument("--max-frame-age", type=int, default=1)
   ap.add_argument("--curvature-abs", type=float, default=0.003)
@@ -56,7 +58,11 @@ def main() -> None:
       pair = json.loads(line)
       small = candidate(pair["small"])
       big = candidate(pair["big"])
-      result = validate_candidate(small, big, policy)
+      if args.reference_side == "small":
+        reference, candidate_output = small, big
+      else:
+        reference, candidate_output = big, small
+      result = validate_candidate(reference, candidate_output, policy)
       if result.valid_for_shadow_analysis:
         valid += 1
       else:
@@ -69,6 +75,8 @@ def main() -> None:
         out.write(json.dumps({
           "frameId": pair.get("frameId"),
           "pairMethod": pair.get("pairMethod"),
+          "referenceSide": args.reference_side,
+          "candidateSide": "big" if args.reference_side == "small" else "small",
           "hardIssues": result.hard_issues,
           "reviewIssues": result.review_issues,
           "disagreement": {
@@ -86,6 +94,8 @@ def main() -> None:
     "hardRejected": hard_rejected,
     "needsReview": review,
     "issueCounts": issue_counts,
+    "referenceSide": args.reference_side,
+    "candidateSide": "big" if args.reference_side == "small" else "small",
     "maxExecutionMs": args.max_execution_ms,
     "maxFrameAge": args.max_frame_age,
   }
