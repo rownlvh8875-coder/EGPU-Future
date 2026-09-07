@@ -4,6 +4,10 @@
 Run this inside an openpilot checkout/environment. The output schema is shared
 with capture_model_actions.py and is intended for small-vs-big route replay
 comparison.
+
+Some Carrot revisions do not populate modelV2.big. For controlled experiments
+where the active backend is independently known, use `--backend-label big` or
+`--backend-label small`; default `auto` preserves the message field.
 """
 from __future__ import annotations
 
@@ -12,6 +16,8 @@ import json
 from pathlib import Path
 
 from openpilot.tools.lib.logreader import LogReader
+
+from egpu_future.log_backend import resolve_big_flag
 
 
 def _safe_float(value, default=None):
@@ -43,6 +49,8 @@ def main() -> None:
   ap.add_argument("log", help="local rlog/qlog(.bz2/.zst), URL, or route identifier supported by LogReader")
   ap.add_argument("--output", type=Path, required=True)
   ap.add_argument("--source-label", default="replay")
+  ap.add_argument("--backend-label", choices=("auto", "big", "small"), default="auto",
+                  help="override modelV2.big only when the experiment backend is independently known")
   args = ap.parse_args()
 
   latest_car = None
@@ -74,6 +82,8 @@ def main() -> None:
       speed = _safe_float(getattr(latest_car, "vEgo", None)) if latest_car is not None else None
       accel = _safe_float(getattr(latest_car, "aEgo", None)) if latest_car is not None else None
       standstill = bool(getattr(latest_car, "standstill", False)) if latest_car is not None else None
+      observed_big = bool(getattr(model, "big", False))
+      big, backend_source = resolve_big_flag(observed_big, args.backend_label)
       row = {
         "source": args.source_label,
         "logMonoTimeNs": int(evt.logMonoTime),
@@ -82,7 +92,10 @@ def main() -> None:
         "frameIdExtra": int(getattr(model, "frameIdExtra", 0)),
         "frameAge": int(getattr(model, "frameAge", 0)),
         "modelExecutionTimeS": _safe_float(getattr(model, "modelExecutionTime", None)),
-        "big": bool(getattr(model, "big", False)),
+        "big": big,
+        "observedModelBig": observed_big,
+        "backendLabel": args.backend_label,
+        "backendLabelSource": backend_source,
         "desiredCurvature": float(action.desiredCurvature),
         "desiredAcceleration": float(action.desiredAcceleration),
         "shouldStop": bool(action.shouldStop),
@@ -96,6 +109,7 @@ def main() -> None:
 
   print(f"emitted={emitted}")
   print(f"duplicate_frame_ids={duplicate_frame_ids}")
+  print(f"backend_label={args.backend_label}")
   print(f"output={args.output}")
 
 
