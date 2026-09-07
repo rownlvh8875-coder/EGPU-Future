@@ -21,9 +21,9 @@
 | S2 Hardware telemetry | 코드 완료 + CI PASS / 실기기 대기 | AMD SMU, power, USB, PCIe read-only background telemetry |
 | S3 Model slots | 코드 완료 + CI PASS | qcom/egpu slot metadata, hash/size/generation/runner validation |
 | S4A Guardian contract | 코드 완료 + CI PASS | active-vs-shadow evidence 평가, control authorization 강제 false |
-| S4B Live shadow load probe | 코드 완료 + pure-Python/static CI PASS / 실기기 대기 | P단·정차·controls inactive 전용, QCOM <=5 Hz 간섭시험 |
-| S4B Qualification | 코드 완료 / 최신 통합 CI 재검증 | explicit policy + interference/hardware/fallback/restore evidence gate |
-| S4C 20 Hz parked plan gate | 코드 완료 / 최신 통합 CI 재검증 | S4B PASS일 때만 exact 20 Hz 정차 실험계획 생성 |
+| S4B Live shadow load probe | 코드 완료 + CI PASS / 실기기 대기 | P단·정차·controls inactive 전용, QCOM <=5 Hz 간섭시험 |
+| S4B Qualification | 코드 완료 + CI PASS / 실측 evidence 대기 | explicit policy + interference/hardware/fallback/restore evidence gate |
+| S4C 20 Hz parked plan gate | 코드 완료 + CI PASS / S4B PASS 대기 | S4B PASS일 때만 exact 20 Hz 정차 실험계획 생성 |
 | S4C 20 Hz runner | 미구현 의도적 보류 | 실제 S4B PASS 전에는 구현하지 않음 |
 | S5 Perception sidecars | 대기 | Carrot YOLO2 방식 bounded/latest-only workload |
 | S6 OEM sensor Guardian | 대기 | radar/BSM/CAN 독립 evidence fusion |
@@ -125,7 +125,7 @@ probe는:
 
 으로 제한한다.
 
-정적 CI가 `PubMaster`, `modelV2 send`, manager registration이 probe에 들어오지 않는지도 검사한다.
+정적 CI는 실제 AST를 검사해 `PubMaster`, `modelV2` publish, manager process registration이 실행코드에 들어오지 않는지도 확인한다.
 
 S4B output은 강제로:
 
