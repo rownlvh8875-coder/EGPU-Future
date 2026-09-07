@@ -56,18 +56,16 @@ road/wide camera
 
 ## 단계
 
-### S0 — Baseline freeze
+### S0 — Baseline freeze ✅
 
 현재 기준선:
 
 - `ajouatom/openpilot:carrot-wip`
 - commit `b2a2db5590f28af420ed01e75c145ddb8ddd90d6`
 
-이 단계에서는 소스 변경 없이 key blob을 고정한다.
+key blob을 `baseline_20260907.json`에 고정했다.
 
-### S1 — Observer / provenance layer
-
-첫 실제 patch.
+### S1 — Observer / provenance layer ✅
 
 차량제어와 무관한 observer를 modeld에 삽입해 다음만 기록한다.
 
@@ -85,23 +83,37 @@ observer의 반환값은 modeld control flow에서 절대 사용하지 않는다
 - `EGPU_INTEGRATED_OBSERVER=1`
 - `/data/egpu_integrated/observer_enabled` marker file
 
-### S2 — comma-style eGPU hardware telemetry parity
+Stage-1 patch는 marker 제거 시 reviewed `carrot-wip/modeld.py`가 byte-for-byte 복원되도록 검증된다.
+
+### S2 — comma-style eGPU hardware telemetry parity ✅ 코드 구현 / 실기기 검증 대기
 
 Carrot의 USB/power readiness는 유지하면서 comma `ChestnutState`에서 유효한 항목을 read-only로 이식한다.
 
-목표 항목:
+구현 항목:
 
 - GPU hotspot temp
 - memory temp
 - socket power
-- PPT/power limit
+- PPT/power limit **조회만**
 - GPU utilization
 - GPU clock
 - fan RPM
 - supply voltage/current/fault
 - PCIe link state
+- USB speed/link error/firmware status
 
-처음에는 JSON/state sidecar로 검증하고 cereal service/UI 연결은 그 다음에 한다.
+중요한 차이:
+
+- hardware read는 modeld 20 Hz loop에서 수행하지 않는다.
+- 기본 OFF인 daemon telemetry thread가 nominal 2초 간격으로만 읽는다.
+- telemetry는 AMD device를 먼저 열지 않는다. modeld가 이미 열어둔 `Device["AMD"]`만 사용한다.
+- USB supply/PCIe read는 Carrot의 `usbgpu_bus_lock`을 사용한다.
+- telemetry 결과는 `/data/egpu_integrated/hardware.json`에만 기록한다.
+- PPT/fan/PCIe/USB write는 없다.
+
+상세: `STAGE2_TELEMETRY_KR.md`
+
+실기기에서는 telemetry OFF/ON active latency 간섭 측정을 통과해야 S2 실사용을 승인한다.
 
 ### S3 — sunnypilot-inspired model slots
 
@@ -124,6 +136,8 @@ Carrot의 USB/power readiness는 유지하면서 comma `ChestnutState`에서 유
 - compatibility constraints
 
 중요: 빈 slot은 자동으로 다른 slot의 임의 모델로 cross-fallback하지 않는다. fallback은 검증된 QCOM default/small 경로만 사용한다.
+
+초기 S3에서는 metadata/validation만 구현하고 주행 중 자동 hot-swap은 만들지 않는다.
 
 ### S4 — Guardian + shadow validation
 
@@ -176,9 +190,9 @@ Driving Intelligence
 
 현재 브랜치에서는 새로운 steering/braking authority를 추가하지 않는다.
 
-## 1차 구현 완료 기준
+## 단계별 완료 조건
 
-S1은 다음 조건을 만족해야 완료로 본다.
+### S1 완료 조건
 
 - patch 제거 시 carrot-wip `modeld.py` byte-for-byte 복원
 - observer disabled일 때 기존 동작과 동일
@@ -186,4 +200,22 @@ S1은 다음 조건을 만족해야 완료로 본다.
 - fallback control flow 변경 없음
 - pure-Python unit tests 통과
 
-이후에만 S2로 진행한다.
+### S2 코드 완료 조건
+
+- telemetry default OFF
+- telemetry가 AMD device를 먼저 열지 않음
+- hardware read가 modeld 20 Hz loop 밖에서 실행
+- SMU/USB/PCIe read-only
+- Stage-2 제거 시 exact Stage-1 restore
+- pure-Python unit tests 통과
+
+### S2 실기기 완료 조건
+
+- telemetry OFF baseline 확보
+- telemetry ON active big p95/p99/max 비교
+- frame age/gap 증가 여부 확인
+- USB link error 증가 없음
+- sample duration tail 확인
+- 이상 시 telemetry를 기본 OFF로 유지하고 구조 재검토
+
+이후에만 S3 model slot을 실제 openpilot fork에 적용한다.
