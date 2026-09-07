@@ -72,6 +72,8 @@ serialization 오류
 
 어느 경우에도 active model이 기다리면 안 된다.
 
+단, **JSON serialization 자체는 sender process에서 동기 실행**된다. socket send가 non-blocking이어도 encode 비용은 active modeld CPU 시간을 사용하므로 bridge가 encode+send 시간을 µs 단위로 기록하고 실기기에서 반드시 측정한다.
+
 ## 2.2 modeld bridge
 
 `integrations/openpilot/modeld_shadow_tap_bridge.py`
@@ -81,6 +83,7 @@ serialization 오류
 bridge가 보내는 snapshot:
 
 - frameId / frameIdExtra
+- **stateFrameId** — active modeld가 frameAge 계산에 사용하는 road-camera state frame id
 - camera SOF / EOF
 - active backend (`big` / `small`)
 - vEgo
@@ -89,6 +92,14 @@ bridge가 보내는 snapshot:
 - traffic convention
 - action_t
 - tap monotonic timestamp
+
+live sidecar는 다음과 같은 openpilot 방식으로 frame age를 재현한다.
+
+```text
+frameAge = max(stateFrameId - frameId, 0)
+```
+
+따라서 stale-frame 검증에서 shadow frameAge를 임의로 0으로 가정하지 않는다.
 
 ## 2.3 same-backend guard
 
@@ -110,7 +121,41 @@ shadow inference 중지
 
 ---
 
-# 3. backpressure 정책
+# 3. 가장 큰 현재 리스크: QCOM small model 중복 로드
+
+현재 공식 openpilot은 Chestnut big model이 active여도 **fallback을 위해 small model을 active modeld 내부에 미리 로드**한다.
+
+현재 prototype sidecar도 별도 process에서 small `ModelState`를 하나 더 만든다.
+
+즉 공식 Chestnut 기준으로는 잠재적으로:
+
+```text
+active modeld
+  ├─ big Chestnut model
+  └─ warm fallback small model
+
+shadow_modeld
+  └─ second small model
+```
+
+이 된다.
+
+따라서 true live shadow에서 가장 먼저 검증할 것은 모델 정확도가 아니라:
+
+- QCOM memory pressure
+- model allocation/compile cache 영향
+- QCOM GPU scheduling contention
+- camerad VisionIPC 소비 영향
+- active big model p95/p99 latency 변화
+- fallback small model 준비상태 영향
+
+이다.
+
+**이 중복 로드가 active path를 의미 있게 방해하면 현재 process-separated prototype을 그대로 상시 사용하지 않는다.** 그 경우 후보는 active modeld 내부 warm small instance를 shadow에도 재사용하는 single-process design이지만, 그 구조는 fault isolation이 약해지므로 별도 검증이 필요하다.
+
+---
+
+# 4. backpressure 정책
 
 shadow는 active path보다 항상 버려질 수 있는 작업이다.
 
@@ -128,7 +173,7 @@ old shadow frame: 폐기
 
 ---
 
-# 4. temporal model에서 5 Hz shadow가 비교용이 아닌 이유
+# 5. temporal model에서 5 Hz shadow가 비교용이 아닌 이유
 
 small/big driving model은 hidden state와 frame history를 사용한다.
 
@@ -147,9 +192,11 @@ small/big driving model은 hidden state와 frame history를 사용한다.
 
 40 frames는 공식 comma safety 기준이 아니라 초기 연구 settle window다.
 
+또한 **40개 연속 frame을 다시 보았다고 hidden state가 active/reference와 수학적으로 동일해졌다는 뜻은 아니다.** 이는 초기 비교 안정화를 위한 heuristic이다. exact hidden-state parity가 필요하면 초기 state/feature를 명시적으로 동기화하거나 동일 route를 처음부터 두 모델에 연속 재생하는 방식이 더 엄밀하다.
+
 ---
 
-# 5. timing instrumentation
+# 6. timing instrumentation
 
 현재 JSONL에는 다음 timestamp/derived metric을 기록한다.
 
@@ -188,7 +235,7 @@ Derived:
 
 ---
 
-# 6. 공식 openpilot / Carrot API compatibility
+# 7. 공식 openpilot / Carrot API compatibility
 
 `tools/shadow_modeld_prototype.py`는 runtime signature를 확인한다.
 
@@ -212,7 +259,7 @@ Carrot의 `get_action_from_model()`은 dynamic lateral smoothing과 `VEgoStoppin
 
 ---
 
-# 7. 코드 구성
+# 8. 코드 구성
 
 ## Core
 
@@ -245,7 +292,7 @@ Carrot의 `get_action_from_model()`은 dynamic lateral smoothing과 `VEgoStoppin
 
 ---
 
-# 8. active modeld 최소 integration 위치
+# 9. active modeld 최소 integration 위치
 
 현재 prototype은 openpilot을 자동 patch하지 않는다.
 
@@ -258,6 +305,7 @@ shadow_tap.send(
   model=model,
   meta_main=meta_main,
   meta_extra=meta_extra,
+  state_frame_id=frame_id,
   v_ego=v_ego,
   transform_main=model_transform_main,
   transform_extra=model_transform_extra,
@@ -267,13 +315,13 @@ shadow_tap.send(
 model_output = model.run(...)
 ```
 
-bridge send 실패 결과는 active model logic에서 사용하지 않는다.
+bridge send 성공/실패 결과는 active model logic에서 사용하지 않는다.
 
 이 tap 자체의 encode/send overhead도 comma 장비에서 측정해야 하며, active model latency에 유의미한 영향이 확인되면 JSON protocol을 fixed binary/shared-memory 형태로 교체한다.
 
 ---
 
-# 9. prototype 실행 순서
+# 10. prototype 실행 순서
 
 ## Phase 0 — offroad / replay
 
@@ -322,7 +370,7 @@ python3 tools/shadow_modeld_prototype.py \
 
 ---
 
-# 10. active big ↔ shadow small 비교 pipeline
+# 11. active big ↔ shadow small 비교 pipeline
 
 ### 1. shadow log 정규화
 
@@ -332,7 +380,7 @@ python3 tools/normalize_shadow_modeld_log.py \
   --output shadow_small.jsonl
 ```
 
-기본값은 `comparisonEligible=true` frame만 남긴다.
+기본값은 `comparisonEligible=true` frame만 남긴다. `frameAge`는 tap의 `stateFrameId`를 이용해 실제 값으로 유지한다.
 
 ### 2. 같은 drive의 active modelV2 추출
 
@@ -361,7 +409,7 @@ python3 tools/validate_paired_shadow.py \
 
 ---
 
-# 11. 첫 실차에서 보는 KPI
+# 12. 첫 실차에서 보는 KPI
 
 ## 반드시 확인
 
@@ -373,8 +421,10 @@ python3 tools/validate_paired_shadow.py \
 - comparisonEligible rate
 - camera_advanced skip rate
 - tap drop rate
-- QCOM temperature / load
+- tap encode+send µs
+- QCOM memory / temperature / load
 - Chestnut big latency 변화
+- eGPU fallback 시 active small 준비상태/latency 변화
 
 ## 초기 판정
 
@@ -391,13 +441,14 @@ python3 tools/validate_paired_shadow.py \
 - active frame drop 증가
 - modeld/controls comm issue
 - thermal/power abnormal
+- QCOM memory pressure 또는 model allocation 문제
 - shadow가 active small fallback과 지속적으로 자원 경쟁
 
 구체 숫자는 실측 baseline을 얻기 전에는 확정하지 않는다.
 
 ---
 
-# 12. 현재 의도적으로 하지 않는 것
+# 13. 현재 의도적으로 하지 않는 것
 
 - shadow output을 `modelV2`로 publish
 - shadow output을 controls에 전달
@@ -410,15 +461,16 @@ python3 tools/validate_paired_shadow.py \
 
 ---
 
-# 13. 다음 단계
+# 14. 다음 단계
 
 1. tap encode/send overhead 실측
 2. parked 5 Hz load probe
 3. parked/offroad 20 Hz continuity
 4. active big baseline vs shadow-on latency delta
-5. Carrot branch에서 `prepare_only` API 실제 smoke test
-6. tinygrad-level enqueue/kernel completion instrumentation
-7. stable하면 process isolation/CPU affinity 자동 추천
-8. 이후 sidecar perception evidence와 연결
+5. QCOM second-small memory/scheduling 영향 계측
+6. Carrot branch에서 `prepare_only` API 실제 smoke test
+7. tinygrad-level enqueue/kernel completion instrumentation
+8. stable하면 process isolation/CPU affinity 자동 추천
+9. 이후 sidecar perception evidence와 연결
 
 현재 단계의 성공 기준은 **shadow model의 정확도가 아니라 active driving path에 영향을 주지 않으면서 동일-input 데이터를 안정적으로 얻는 것**이다.
