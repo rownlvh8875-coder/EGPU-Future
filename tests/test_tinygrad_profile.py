@@ -30,6 +30,17 @@ def test_filter_and_invalid_ranges():
   assert [r.name for r in rows] == ["a"]
 
 
+def test_exact_device_filter_excludes_qcom_copy_events():
+  events = [
+    {"device": "QCOM", "name": "gpu_kernel", "st": 0, "en": 1000},
+    {"device": "QCOM:COPY", "name": "QCOM -> TINY", "st": 100, "en": 900},
+  ]
+  exact = normalize_profile_events(events, device_prefix="QCOM", exact_device=True)
+  prefixed = normalize_profile_events(events, device_prefix="QCOM", exact_device=False)
+  assert [r.name for r in exact] == ["gpu_kernel"]
+  assert len(prefixed) == 2
+
+
 def test_device_clock_offset_and_host_alignment():
   events = [
     {"device": "QCOM", "tdiff": 10_000},
