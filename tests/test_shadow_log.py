@@ -5,6 +5,8 @@ def row(eligible=True):
   return {
     "type": "shadow_output",
     "frameId": 123,
+    "stateFrameId": 124,
+    "frameAge": 1,
     "cameraTimestampEofNs": 2_000_000_000,
     "shadowBackend": "small",
     "comparisonEligible": eligible,
@@ -26,6 +28,7 @@ def test_normalize_eligible_shadow_output():
   n = normalize_shadow_output(row())
   assert n is not None
   assert n["frameId"] == 123
+  assert n["frameAge"] == 1
   assert n["modelExecutionTimeS"] == 0.031
   assert n["desiredCurvature"] == 0.001
   assert n["desiredAcceleration"] == -0.2
