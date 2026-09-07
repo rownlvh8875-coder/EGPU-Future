@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+from egpu_future.interference import percentile
 from egpu_future.tinygrad_profile import KernelRange, union_busy_us
 
 
@@ -26,7 +27,6 @@ def model_window_from_shadow_event(row: dict) -> ModelWindow | None:
   if frame_id <= 0:
     return None
 
-  # Newer logs may carry raw host timestamps directly.
   host = row.get("hostTimestampsNs") or {}
   try:
     start_ns = int(host["modelCallStart"])
@@ -41,9 +41,6 @@ def model_window_from_shadow_event(row: dict) -> ModelWindow | None:
   except (KeyError, TypeError, ValueError):
     pass
 
-  # Existing shadow logs already contain enough information to reconstruct the
-  # same host window without changing the runtime process: camera EOF is on the
-  # monotonic clock and TimingTrace stores EOF->done plus total model-call time.
   timing = row.get("timing") or {}
   try:
     eof_ns = int(row["cameraTimestampEofNs"])
@@ -104,3 +101,31 @@ def correlate_window(window: ModelWindow, kernels: list[KernelRange], tolerance_
 
 def correlate_windows(windows: Iterable[ModelWindow], kernels: list[KernelRange], tolerance_us: float = 50.0) -> list[dict]:
   return [correlate_window(w, kernels, tolerance_us=tolerance_us) for w in windows]
+
+
+def _metric(rows: list[dict], key: str) -> dict:
+  vals = [float(r[key]) for r in rows if r.get(key) is not None]
+  return {
+    "samples": len(vals),
+    "meanMs": sum(vals) / len(vals) if vals else None,
+    "p50Ms": percentile(vals, 0.50),
+    "p95Ms": percentile(vals, 0.95),
+    "p99Ms": percentile(vals, 0.99),
+    "maxMs": max(vals) if vals else None,
+  }
+
+
+def summarize_correlations(rows: list[dict]) -> dict:
+  covered = [r for r in rows if r.get("coveredByHardwareProfile")]
+  return {
+    "frames": len(rows),
+    "coveredFrames": len(covered),
+    "coverage": len(covered) / len(rows) if rows else 0.0,
+    "kernelCountTotal": sum(int(r.get("kernelCount", 0) or 0) for r in covered),
+    "modelCall": _metric(rows, "modelCallMs"),
+    "firstKernelDelay": _metric(covered, "firstKernelDelayMs"),
+    "enqueueToFirstKernel": _metric(covered, "enqueueToFirstKernelMs"),
+    "kernelEnvelope": _metric(covered, "kernelEnvelopeMs"),
+    "kernelBusy": _metric(covered, "kernelBusyMs"),
+    "afterLastKernel": _metric(covered, "afterLastKernelMs"),
+  }
