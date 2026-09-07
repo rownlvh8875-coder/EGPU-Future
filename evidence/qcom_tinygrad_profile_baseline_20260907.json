@@ -1,0 +1,27 @@
+{
+  "capturedAtKst": "2026-09-07T18:27:23+09:00",
+  "repository": "ajouatom/openpilot",
+  "branch": "carrot-egpu-yolo",
+  "branchTip": "1310ed43fe70a903d31589295f4dabe37649dab2",
+  "previousIntegrationBaseline": "2c508b1dde53b9a996546993e1c7b5b74b489541",
+  "compareFromPrevious": {
+    "aheadBy": 2,
+    "codeFilesChanged": false,
+    "changedFiles": [
+      "docs/egpu_yolo_next_steps.md"
+    ]
+  },
+  "tinygrad": {
+    "hcqPath": "tinygrad_repo/tinygrad/runtime/support/hcq.py",
+    "hcqGitBlob": "9d87005226f4141a77eb956abb38c50c3d2fb203",
+    "qcomPath": "tinygrad_repo/tinygrad/runtime/ops_qcom.py",
+    "qcomGitBlob": "6eb3dc25b576385db6574aec7a9660deaa489ec3",
+    "profileMechanism": {
+      "kernelRange": "HCQProgram.__call__ uses hcq_profile and device timestamp signals when PROFILE=1",
+      "deviceClockAlignment": "ProfileDeviceEvent.tdiff is added to ProfileRangeEvent timestamps by tinygrad viz",
+      "qcomTimestampDivider": 19.2,
+      "profileOutput": "profile.pkl"
+    }
+  },
+  "interpretation": "This evidence pins the source behavior used by EGPU-Future's QCOM hardware-profile parser. It is not a runtime measurement from the user's vehicle."
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EGPU-Future Commissioning Interference Limits",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "minSamplesEach",
+    "maxP99IncreaseMs",
+    "maxMaxIncreaseMs",
+    "maxDeadlineMissRateDelta",
+    "maxFrameAgeGt1Delta",
+    "maxFrameGapCountDelta"
+  ],
+  "properties": {
+    "minSamplesEach": {"type": "integer", "minimum": 1},
+    "maxP99IncreaseMs": {"type": "number", "minimum": 0},
+    "maxMaxIncreaseMs": {"type": "number", "minimum": 0},
+    "maxDeadlineMissRateDelta": {"type": "number", "minimum": 0},
+    "maxFrameAgeGt1Delta": {"type": "integer", "minimum": 0},
+    "maxFrameGapCountDelta": {"type": "integer", "minimum": 0}
+  },
+  "description": "Schema only. EGPU-Future intentionally does not supply default safety limits; experiment owners must set measured, justified values."
+}
