@@ -4,7 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-PINNED_CARROT_WIP_HEAD = "b2a2db5590f28af420ed01e75c145ddb8ddd90d6"
+# 6f4c00e6 is one commit after the original S0 review. That commit only changed
+# Hyundai PV5/navigation-speed files and left every pinned eGPU/modeld critical
+# blob unchanged, so the reviewed modeld boundary remains the same.
+PINNED_CARROT_WIP_HEAD = "6f4c00e625dc3d41d3776427a272a5c3fed75e6c"
 PINNED_MODELD_BLOB = "e4de3eb2236f6bb0c54c87666099147311602f4f"
 TARGET_MODELD_PATH = "openpilot/selfdrive/modeld/modeld.py"
 TARGET_OBSERVER_PATH = "openpilot/selfdrive/modeld/egpu_integration_observer.py"
@@ -51,39 +54,45 @@ def _insert_once(source: str, anchor: str, replacement: str, name: str) -> str:
 
 
 def patch_modeld_text(source: str) -> str:
-  existing = patch_summary(source)
-  if any((existing.imports, existing.init, existing.attempt, existing.fallback, existing.sample)):
-    if existing.complete:
+  summary = patch_summary(source)
+  if any((summary.imports, summary.init, summary.attempt, summary.fallback, summary.sample)):
+    if summary.complete:
       return source
-    raise ValueError(f"partial integrated observer patch detected: {existing}")
+    raise ValueError(f"partial integrated observer patch detected: {summary}")
 
   import_anchor = "from openpilot.selfdrive.modeld.constants import ModelConstants, Plan\n"
-  source = _insert_once(source, import_anchor, import_anchor + IMPORT_BLOCK, "import")
+  source = _insert_once(source, import_anchor, import_anchor + IMPORT_BLOCK, "observer import")
 
   init_anchor = "  params = Params()\n  usbgpu_pkl_path = usbgpu_compiled_path()\n"
-  source = _insert_once(source, init_anchor,
-                        "  params = Params()\n" + INIT_BLOCK + "  usbgpu_pkl_path = usbgpu_compiled_path()\n",
-                        "observer init")
+  source = _insert_once(
+    source,
+    init_anchor,
+    "  params = Params()\n" + INIT_BLOCK + "  usbgpu_pkl_path = usbgpu_compiled_path()\n",
+    "observer init",
+  )
 
   attempt_anchor = "    mt1 = time.perf_counter()\n    try:\n      model_output = model.run(bufs, transforms, inputs, prepare_only)\n"
   source = _insert_once(source, attempt_anchor, ATTEMPT_BLOCK + attempt_anchor, "model attempt")
 
-  fallback_anchor = (
-    "      # Run the already-loaded internal model for this same camera frame. A\n"
-    "      # missing modelV2 frame during fallback can otherwise cascade into a\n"
-    "      # misleading communication/CAN error while selfdrived waits for modeld.\n"
-    "      model_output = model.run(bufs, transforms, inputs, prepare_only)\n"
+  fallback_anchor = "      model = small_model\n      run_count = 0\n      # Run the already-loaded internal model for this same camera frame. A\n"
+  source = _insert_once(
+    source,
+    fallback_anchor,
+    "      model = small_model\n      run_count = 0\n" + FALLBACK_BLOCK + "      # Run the already-loaded internal model for this same camera frame. A\n",
+    "same-frame fallback",
   )
-  source = _insert_once(source, fallback_anchor, FALLBACK_BLOCK + fallback_anchor, "same-frame fallback")
 
-  sample_anchor = "    model_execution_time = mt2 - mt1\n\n    if model_output is not None:\n"
-  source = _insert_once(source, sample_anchor,
-                        "    model_execution_time = mt2 - mt1\n" + OBSERVE_BLOCK + "\n    if model_output is not None:\n",
-                        "model execution sample")
+  sample_anchor = "    mt2 = time.perf_counter()\n    model_execution_time = mt2 - mt1\n\n    if model_output is not None:\n"
+  source = _insert_once(
+    source,
+    sample_anchor,
+    "    mt2 = time.perf_counter()\n    model_execution_time = mt2 - mt1\n" + OBSERVE_BLOCK + "\n    if model_output is not None:\n",
+    "observer sample",
+  )
 
-  summary = patch_summary(source)
-  if not summary.complete:
-    raise AssertionError(f"generated incomplete patch: {summary}")
+  result = patch_summary(source)
+  if not result.complete:
+    raise AssertionError(f"generated incomplete observer patch: {result}")
   return source
 
 
@@ -116,16 +125,18 @@ def strip_integration_blocks(source: str) -> str:
 def verify_control_path_unchanged(original: str, patched: str) -> None:
   summary = patch_summary(patched)
   if not summary.complete:
-    raise ValueError(f"patch markers incomplete: {summary}")
-  if strip_integration_blocks(patched) != original:
-    raise ValueError("removing observer markers does not restore original modeld.py byte-for-byte")
+    raise ValueError(f"observer patch markers incomplete: {summary}")
+  restored = strip_integration_blocks(patched)
+  if restored != original:
+    raise ValueError("removing integrated observer markers does not restore modeld.py byte-for-byte")
 
-  for landmark in (
-    "model_output = model.run(bufs, transforms, inputs, prepare_only)",
+  required = (
+    'model_output = model.run(bufs, transforms, inputs, prepare_only)',
     'cloudlog.exception("eGPU model failed, falling back to internal GPU")',
     'params.put_bool("UsbGpuActive", False)',
-    "model = small_model",
+    'model = small_model',
     "pm.send('modelV2', modelv2_send)",
-  ):
-    if landmark not in patched:
-      raise ValueError(f"control/fallback landmark disappeared: {landmark}")
+  )
+  for line in required:
+    if line not in patched:
+      raise ValueError(f"control/fallback landmark disappeared: {line}")
