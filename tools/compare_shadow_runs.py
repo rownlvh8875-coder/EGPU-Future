@@ -8,6 +8,7 @@ from pathlib import Path
 from egpu_future.frame_pairing import PairingConfig, pair_records
 from egpu_future.shadow_metrics import ActionSample, Thresholds, compare_actions
 from egpu_future.scenario_tagger import SceneSample, tag_scene
+from egpu_future.temporal_scenarios import TemporalSceneSample, TemporalScenarioTracker
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -56,9 +57,11 @@ def main() -> None:
     ambiguity_margin_s=args.ambiguity_margin,
   ))
   th = Thresholds(args.curvature_abs, args.curvature_rel, args.accel_abs)
+  temporal = TemporalScenarioTracker()
 
   significant = 0
   scores: list[float] = []
+  temporal_counts: dict[str, int] = {}
   args.events.parent.mkdir(parents=True, exist_ok=True)
   with args.events.open('w', encoding='utf-8') as out:
     for pair in pairing.pairs:
@@ -66,6 +69,23 @@ def main() -> None:
       sa, ba = action_from(srow), action_from(brow)
       d = compare_actions(sa, ba, th)
       scores.append(d.score)
+
+      temporal_tags = temporal.observe(TemporalSceneSample(
+        t_s=sa.t,
+        speed_mps=float(srow.get('speedMps') or 0.0),
+        standstill=bool(srow.get('standstill', False)),
+        lead_present=srow.get('leadPresent'),
+        lead_distance_m=srow.get('leadDistanceM'),
+        lead_rel_speed_mps=srow.get('leadRelSpeedMps'),
+        small_should_stop=sa.should_stop,
+        big_should_stop=ba.should_stop,
+      ))
+      for tag in temporal_tags:
+        temporal_counts[tag] = temporal_counts.get(tag, 0) + 1
+
+      # Temporal state is updated for every matched frame, not only significant
+      # disagreements. Otherwise sparse event filtering would invent fake
+      # lead-acquired/lost and transition tags.
       if not d.significant:
         continue
       significant += 1
@@ -79,6 +99,7 @@ def main() -> None:
         lead_distance_m=srow.get('leadDistanceM'),
         lead_rel_speed_mps=srow.get('leadRelSpeedMps'),
       )
+      static_tags = tag_scene(scene)
       event = {
         'frameId': int(srow.get('frameId', 0) or brow.get('frameId', 0) or 0),
         'pairMethod': pair.method,
@@ -92,7 +113,8 @@ def main() -> None:
           'stopMismatch': d.stop_mismatch,
           'score': d.score,
         },
-        'tags': tag_scene(scene),
+        'tags': list(dict.fromkeys(static_tags + temporal_tags)),
+        'temporalTags': temporal_tags,
       }
       out.write(json.dumps(event, ensure_ascii=False) + '\n')
 
@@ -104,6 +126,9 @@ def main() -> None:
   print(f'significant={significant}')
   print(f'significant_rate={(significant/matched*100 if matched else 0):.2f}%')
   print(f'mean_score={mean_score:.3f}')
+  print('temporal_transitions:')
+  for tag, count in sorted(temporal_counts.items(), key=lambda kv: (-kv[1], kv[0])):
+    print(f'  {tag}: {count}')
   print(f'events={args.events}')
 
 
