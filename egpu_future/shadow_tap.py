@@ -23,6 +23,7 @@ MAX_PACKET_BYTES = 8192
 class ShadowInputSnapshot:
   frame_id: int
   frame_id_extra: int
+  state_frame_id: int
   camera_sof_ns: int
   camera_eof_ns: int
   active_backend: str
@@ -39,6 +40,8 @@ class ShadowInputSnapshot:
       raise ValueError("frame_id must be positive")
     if self.frame_id_extra <= 0:
       raise ValueError("frame_id_extra must be positive")
+    if self.state_frame_id < 0:
+      raise ValueError("state_frame_id must be non-negative")
     if len(self.main_transform) != 9 or len(self.extra_transform) != 9:
       raise ValueError("transforms must contain exactly 9 floats")
     if len(self.traffic_convention) != 2:
@@ -71,6 +74,7 @@ def decode_snapshot(dat: bytes) -> ShadowInputSnapshot:
   snap = ShadowInputSnapshot(
     frame_id=int(payload["frame_id"]),
     frame_id_extra=int(payload["frame_id_extra"]),
+    state_frame_id=int(payload["state_frame_id"]),
     camera_sof_ns=int(payload["camera_sof_ns"]),
     camera_eof_ns=int(payload["camera_eof_ns"]),
     active_backend=str(payload["active_backend"]),
