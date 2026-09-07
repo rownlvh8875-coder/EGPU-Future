@@ -1,6 +1,11 @@
 from types import SimpleNamespace
 
-from egpu_future.tinygrad_profile import normalize_profile_event, normalize_profile_events, summarize_kernel_ranges
+from egpu_future.tinygrad_profile import (
+  device_clock_offsets_us,
+  normalize_profile_event,
+  normalize_profile_events,
+  summarize_kernel_ranges,
+)
 
 
 def test_normalize_profile_event_object_and_dict():
@@ -23,6 +28,19 @@ def test_filter_and_invalid_ranges():
   ]
   rows = normalize_profile_events(events, device_prefix="QCOM")
   assert [r.name for r in rows] == ["a"]
+
+
+def test_device_clock_offset_and_host_alignment():
+  events = [
+    {"device": "QCOM", "tdiff": 10_000},
+    {"device": "QCOM", "name": "kernel", "st": 2000, "en": 3000},
+  ]
+  assert device_clock_offsets_us(events) == {"QCOM": 10_000.0}
+  rows = normalize_profile_events(events, device_prefix="QCOM", align_to_host=True)
+  assert len(rows) == 1
+  assert rows[0].start_us == 12_000.0
+  assert rows[0].end_us == 13_000.0
+  assert rows[0].duration_ms == 1.0
 
 
 def test_summary_union_busy_and_top_kernels():
