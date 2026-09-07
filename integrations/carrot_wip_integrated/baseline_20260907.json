@@ -56,6 +56,10 @@
     "policy": "read-only-background-thread",
     "defaultEnabled": false,
     "nominalIntervalSeconds": 2.0,
+    "transportLocking": {
+      "supplyAndPcie": "explicit Carrot usbgpu_bus_lock",
+      "smu": "tinygrad USB transport uses the same Carrot usbgpu_bus_lock per transaction"
+    },
     "fields": [
       "tempC",
       "memoryTempC",
