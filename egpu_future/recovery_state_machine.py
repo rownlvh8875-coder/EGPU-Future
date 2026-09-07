@@ -10,6 +10,7 @@ from enum import Enum, auto
 
 
 class EgpuState(Enum):
+  DISABLED = auto()
   DISCONNECTED = auto()
   POWER_WAIT = auto()
   USB_READY = auto()
@@ -34,6 +35,7 @@ class Health:
   model_alive: bool
   model_ready: bool
   deadline_ok: bool = True
+  user_enabled: bool = True
 
 
 @dataclass
@@ -49,9 +51,31 @@ class Policy:
   max_warmup_ticks: int = 120
 
 
+def official_chestnut_policy(**overrides) -> Policy:
+  """Profile matching comma's current Chestnut powered-voltage threshold.
+
+  Thermal derate values remain EGPU-Future research defaults; hard limits match
+  the values currently used by openpilot's Chestnut status code.
+  """
+  values = dict(powered_voltage_mv=5000)
+  values.update(overrides)
+  return Policy(**values)
+
+
+def carrot_usbgpu_policy(**overrides) -> Policy:
+  """Profile matching ajouatom/carrot USB-GPU's current minimum-power check.
+
+  This is a compatibility/research profile, not an endorsement that 8 V is a
+  universal safe threshold for every Chestnut/GPU/power configuration.
+  """
+  values = dict(powered_voltage_mv=8000)
+  values.update(overrides)
+  return Policy(**values)
+
+
 class RecoveryStateMachine:
   def __init__(self, policy: Policy | None = None):
-    self.policy = policy or Policy()
+    self.policy = policy or official_chestnut_policy()
     self.state = EgpuState.DISCONNECTED
     self._power_good = 0
     self._link_good = 0
@@ -70,6 +94,22 @@ class RecoveryStateMachine:
 
   def update(self, h: Health) -> EgpuState:
     p = self.policy
+
+    # Intentional disable is not a recoverable fault. Do not repeatedly retry
+    # hardware/model initialization until the user/research harness enables it.
+    if not h.user_enabled:
+      self._reset_counters()
+      self.state = EgpuState.DISABLED
+      self.last_reason = "user_disabled"
+      return self.state
+
+    if self.state == EgpuState.DISABLED:
+      self._reset_counters()
+      self.state = EgpuState.DISCONNECTED
+      self.last_reason = "user_enabled"
+      # Continue through normal detection on the next update. Keeping this as a
+      # separate tick makes the transition explicit and easy to audit/test.
+      return self.state
 
     if not h.chestnut_present:
       self._reset_counters()
