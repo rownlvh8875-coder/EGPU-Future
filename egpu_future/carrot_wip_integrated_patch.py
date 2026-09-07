@@ -74,13 +74,11 @@ def patch_modeld_text(source: str) -> str:
   attempt_anchor = "    mt1 = time.perf_counter()\n    try:\n      model_output = model.run(bufs, transforms, inputs, prepare_only)\n"
   source = _insert_once(source, attempt_anchor, ATTEMPT_BLOCK + attempt_anchor, "model attempt")
 
-  fallback_anchor = "      model = small_model\n      run_count = 0\n      # Run the already-loaded internal model for this same camera frame. A\n"
-  source = _insert_once(
-    source,
-    fallback_anchor,
-    "      model = small_model\n      run_count = 0\n" + FALLBACK_BLOCK + "      # Run the already-loaded internal model for this same camera frame. A\n",
-    "same-frame fallback",
-  )
+  # Anchor on the same-frame explanatory comment rather than the optional
+  # run_count bookkeeping line. This survives equivalent fixture/source forms
+  # while still refusing any source that has lost the same-frame fallback.
+  fallback_anchor = "      # Run the already-loaded internal model for this same camera frame. A\n"
+  source = _insert_once(source, fallback_anchor, FALLBACK_BLOCK + fallback_anchor, "same-frame fallback")
 
   sample_anchor = "    mt2 = time.perf_counter()\n    model_execution_time = mt2 - mt1\n\n    if model_output is not None:\n"
   source = _insert_once(
