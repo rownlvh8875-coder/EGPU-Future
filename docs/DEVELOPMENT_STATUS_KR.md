@@ -21,39 +21,15 @@ openpilot 환경에서 다음을 JSONL로 기록한다.
 
 이 도구는 **읽기 전용**이며 GPU PPT나 차량 제어 값을 변경하지 않는다.
 
-예시:
-
-```bash
-python3 tools/chestnut_telemetry_logger.py \
-  --output /data/media/0/chestnut_telemetry.jsonl \
-  --hz 2 \
-  --duration 3600
-```
-
-## 2. PPT sweep 분석기
+### 2. PPT sweep 분석기
 
 `tools/analyze_ppt_sweep.py`
 
-관측된 `powerLimitW`별로 다음을 집계한다.
+관측된 `powerLimitW`별로 평균 GPU power, GPU/VRAM p95 온도, fan RPM, minimum supply voltage, p95 supply current, supply fault, PCIe abnormal sample, model dead sample을 집계한다.
 
-- 평균 GPU power
-- GPU/VRAM p95 temperature
-- fan 평균/p95 RPM
-- minimum supply voltage
-- p95 supply current
-- supply fault count
-- PCIe 비정상 sample
-- model dead sample
+현재 버전은 PPT를 자동으로 변경하지 않는다.
 
-예시:
-
-```bash
-python3 tools/analyze_ppt_sweep.py chestnut_telemetry.jsonl --csv ppt_summary.csv
-```
-
-중요: 현재 버전은 PPT를 자동으로 변경하지 않는다. PPT 변경은 별도 실험 단계에서 사람이 승인한 값으로 시행한다.
-
-## 3. eGPU recovery state machine
+### 3. eGPU recovery state machine
 
 `egpu_future/recovery_state_machine.py`
 
@@ -72,34 +48,114 @@ DISCONNECTED
   → MODEL_WARMUP
 ```
 
-현재 정책은 openpilot의 기존 hard thermal 기준과 연구용 proactive derate 기준을 분리한다.
-
 기본 연구값:
 
-- power valid: >= 5000 mV (Chestnut status 코드와 동일한 판단 기준)
+- power valid: >= 5000 mV
 - proactive GPU derate: 90 °C
 - proactive memory derate: 85 °C
 - hard GPU fallback: 100 °C
 - hard memory fallback: 95 °C
 
-90/85 °C는 comma 공식 기준이 아니라 EGPU-Future의 초기 연구값이다. 실차 데이터로 조정한다.
+90/85 °C는 comma 공식 기준이 아니라 EGPU-Future의 초기 연구값이다.
 
-Recovery logic은 openpilot과 독립된 pure Python으로 먼저 검증하고, 충분한 fault-injection test 후에만 modeld/hardwared integration을 검토한다.
+### 4. Recovery telemetry simulator
 
-## 4. Big/Small disagreement analyzer
+`tools/replay_recovery_state.py`
 
-`tools/disagreement_analyzer.py`
+실제/가상 telemetry JSONL을 recovery state machine에 재생하여 power loss, USB/PCIe fault, thermal fault, model/deadline fault가 기대 상태로 전이되는지 확인한다.
 
-동일 시점의 small/big 모델 action을 CSV로 받아 다음 차이를 계산한다.
+### 5. Shadow disagreement metric
 
-- desired curvature 차이
-- desired acceleration 차이
-- shouldStop 판단 차이
-- 종합 disagreement score
+`egpu_future/shadow_metrics.py`
 
-목적은 big model이 실제로 유리한 long-tail scene을 자동 추출하기 위한 것이다.
+openpilot의 `modelV2.action`에 존재하는:
 
-현재 openpilot stock `modeld`는 big과 small을 항상 동시에 publish하는 구조가 아니므로, 다음 단계에서 shadow-output capture 방법을 별도로 구현한다.
+- desiredCurvature
+- desiredAcceleration
+- shouldStop
+
+을 기준으로 small/big model 차이를 계산한다.
+
+연구용 disagreement score는 안전점수가 아니다. 이벤트 우선순위 선별용이다.
+
+### 6. Scenario tagger
+
+`egpu_future/scenario_tagger.py`
+
+현재 최소 태그:
+
+- standstill
+- creep
+- hard_decel
+- hard_accel
+- curve
+- sharp_curve
+- lead_present
+- close_lead
+- closing_fast
+- no_lead
+- cruise
+
+향후 cut-in, lead acquired/lost, lane merge, cone/construction 등 vision/model 정보를 쓰는 태그를 추가한다.
+
+### 7. Offline shadow-run comparator
+
+`tools/compare_shadow_runs.py`
+
+small/big action JSONL을 timestamp 기준으로 pairing한 뒤:
+
+- curvature absolute/relative difference
+- acceleration difference
+- shouldStop mismatch
+- disagreement score
+- scenario tags
+
+를 계산하여 `shadow_events.jsonl`에 significant event만 저장한다.
+
+### 8. Model action capture
+
+`tools/capture_model_actions.py`
+
+현재 실행 중인 stock modeld의 `modelV2.action`을 차량제어와 독립적으로 읽어서 JSONL로 저장한다.
+
+주의: stock modeld는 같은 순간 big/small을 모두 publish하지 않는다. 따라서 이 도구만으로 live dual-model shadow가 완성되는 것은 아니다.
+
+### 9. Latency profiler
+
+`tools/latency_profiler.py`
+
+JSONL의 latency field를 기준으로:
+
+- mean
+- p50
+- p95
+- p99
+- max
+- deadline miss count/rate
+
+를 계산한다.
+
+현재 기본 deadline은 50 ms이며 이는 20 Hz nominal model period와 맞춘 분석 기본값이다. 실제 안전/제어 deadline으로 간주하지 않는다.
+
+### 10. Shadow event summary
+
+`tools/summarize_shadow_events.py`
+
+저장된 disagreement event를 scenario tag, stop mismatch, score 중심으로 요약한다.
+
+---
+
+# 현재 확인된 openpilot 제약
+
+현재 stock `modeld`는 `modelV2`와 `drivingModelData`를 publish하지만, 제어경로에서는 big 또는 small 중 현재 active model 하나의 결과를 publish한다.
+
+따라서 **진짜 live dual-model shadow runner**는 다음 중 하나가 필요하다.
+
+1. 별도 `shadow_modeld`가 camera frame을 받아 small model을 추가 실행하거나,
+2. stock modeld 내부에 non-controlling shadow inference path를 추가하거나,
+3. 동일 route/frame을 replay하여 small/big을 별도 실행하고 offline pairing한다.
+
+초기 안전성과 재현성 때문에 3 → 1 → 2 순서를 권장한다.
 
 ---
 
@@ -109,14 +165,7 @@ Recovery logic은 openpilot과 독립된 pure Python으로 먼저 검증하고, 
 
 `tinygrad` AMD SMU에는 `set_power_limit(watts)`가 존재하지만 아직 자동제어와 연결하지 않았다.
 
-이유:
-
-1. RX 9060에서 유효한 최소/최대 범위를 실측해야 함
-2. PPT 변경 중 inference deadline 영향 확인 필요
-3. 잘못된 thermal control이 오히려 모델 지연을 유발할 수 있음
-4. 차량 주행 중 자동 power tuning 전에 bench/parked test가 필요함
-
-따라서 순서:
+순서:
 
 ```text
 read-only logging
@@ -127,46 +176,43 @@ read-only logging
  → 충분한 검증 후 제한적 자동 적용
 ```
 
-## B. Big/Small dual-model live shadow runner
+## B. True live dual-model shadow runner
 
-현재 최우선 다음 개발 항목이다.
+다음 핵심 개발 항목이다.
 
 목표:
 
-- 동일 camera frame에 small/big model inference
-- big output은 차량제어에 사용하지 않는 shadow mode
-- timestamp / inference latency / action output 동시 기록
+- 동일 camera frame에 small/big inference
+- big 또는 shadow output은 차량제어에 사용하지 않음
+- frameId / camera timestamp / inference latency / action 동시 기록
 - disagreement event 자동 저장
+- active model에 영향이 없도록 process/resource isolation
 
-초기에는 vehicle command path와 완전히 분리한다.
+## C. End-to-end latency instrumentation
 
-## C. End-to-end latency profiler
-
-필요 timestamp:
+최종적으로 필요한 timestamp:
 
 ```text
 camera SOF/EOF
  → frame available
  → preprocessing start/end
- → GPU enqueue
+ → USB transfer/enqueue
  → GPU complete
- → model output
+ → model output publish
  → control consume
  → CAN send
 ```
 
-Chestnut의 핵심 평가는 평균 FPS가 아니라 p95/p99 end-to-end latency와 deadline miss rate로 수행한다.
+평균 FPS보다 p95/p99 latency와 deadline miss가 핵심이다.
 
 ---
 
 # Fault-injection test matrix
 
-Recovery state machine은 다음을 순서대로 시험한다.
-
 | ID | fault | 기대 동작 |
 |---|---|---|
 | F01 | Chestnut missing | DISCONNECTED 유지, small model |
-| F02 | 12 V 늦게 인가 | POWER_WAIT 후 자동 초기화 후보 |
+| F02 | 12 V 늦게 인가 | POWER_WAIT 후 초기화 후보 |
 | F03 | crank voltage drop | FALLBACK, stable power 후 retry |
 | F04 | USB disconnect | 즉시 FALLBACK |
 | F05 | PCIe link loss | 즉시 FALLBACK |
@@ -175,9 +221,7 @@ Recovery state machine은 다음을 순서대로 시험한다.
 | F08 | GPU/VRAM hard temp | FALLBACK |
 | F09 | model warmup timeout | FALLBACK → RETRY_WAIT |
 | F10 | inference deadline 반복 위반 | FALLBACK |
-| F11 | 전원 복구 | 일정 debounce 이후 safe retry |
-
-주행제어와 연결하기 전 bench/replay test에서 모두 통과해야 한다.
+| F11 | 전원 복구 | debounce 이후 safe retry |
 
 ---
 
@@ -187,30 +231,28 @@ Recovery state machine은 다음을 순서대로 시험한다.
 
 **더 뉴 싼타페 TM 2021 / D2.2 / 2WD / 5인승 / 프레스티지 / 조수석 전동·통풍시트**
 
-실차 장착 전에는 현재 코드만 개발한다.
-
-Chestnut 도착/장착 후 순서:
+Chestnut 장착 후 순서:
 
 1. passenger footwell temporary rigid tray
 2. OEM 12 V outlet + comma supplied power cable
 3. read-only telemetry 30/60/120분
-4. cold start / warm start / ISG stop-restart 기록
-5. heat-soak 조건 기록
+4. cold/warm start 및 ISG stop-restart 기록
+5. heat-soak 기록
 6. 수동 PPT sweep
 7. fan RPM / cabin dBA / model latency 비교
-8. 최적 operating point 선정
+8. quiet/efficient operating point 선정
 9. 이후 조수석 하부 최종 bracket 검토
 
 ---
 
 # 다음 구현 순서
 
-1. `shadow_runner` 설계 및 최소 구현
-2. model inference latency timestamp capture
-3. disagreement event schema 확정
-4. scenario tagger 연결
-5. recovery state-machine simulator/CLI
-6. read-only route health report 자동 생성
-7. 이후에만 advisory PPT controller 구현
+1. route/replay 기반 small/big action extractor
+2. frameId 기반 deterministic pairing
+3. true `shadow_modeld` prototype 설계
+4. camera/model inference timestamp instrumentation
+5. lead acquired/lost, cut-in, merge 등 scenario tag 확장
+6. route health report 자동 생성
+7. 이후 advisory PPT controller
 
-원칙은 **먼저 관측 가능성(observability), 그 다음 fault recovery, 마지막에 자동 최적화**다.
+원칙은 **관측 가능성 → 재현 가능한 replay 비교 → shadow 실행 → fault recovery → 자동 최적화** 순이다.
