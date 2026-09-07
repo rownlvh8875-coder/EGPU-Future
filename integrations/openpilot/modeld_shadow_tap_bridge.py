@@ -25,6 +25,14 @@ class ModeldShadowTapBridge:
   def _flat(values: Any) -> tuple[float, ...]:
     return tuple(float(v) for v in values.reshape(-1))
 
+  @staticmethod
+  def _is_big_model(model: Any) -> bool:
+    # Official openpilot currently exposes ModelState.chestnut.  The Carrot
+    # eGPU branch analyzed by this project uses ModelState.usbgpu instead.
+    if hasattr(model, "chestnut"):
+      return bool(getattr(model, "chestnut"))
+    return bool(getattr(model, "usbgpu", False))
+
   def send(self, *, model: Any, meta_main: Any, meta_extra: Any, v_ego: float,
            transform_main: Any, transform_extra: Any, inputs: dict[str, Any]) -> bool:
     start = time.perf_counter_ns()
@@ -36,7 +44,7 @@ class ModeldShadowTapBridge:
         frame_id_extra=int(meta_extra.frame_id),
         camera_sof_ns=int(meta_main.timestamp_sof),
         camera_eof_ns=int(meta_main.timestamp_eof),
-        active_backend="big" if bool(getattr(model, "chestnut", False)) else "small",
+        active_backend="big" if self._is_big_model(model) else "small",
         v_ego=float(v_ego),
         main_transform=self._flat(transform_main),
         extra_transform=self._flat(transform_extra),
