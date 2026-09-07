@@ -126,7 +126,7 @@ Vehicle low-voltage bus
 
 실제 차량별 outlet fuse/rating과 배선 허용전류는 반드시 별도 확인하며 OEM wiring보다 fuse만 크게 변경하지 않습니다.
 
-상세 설계: [차량용 eGPU 전원·발열·소음·신뢰성 통합 설계](docs/VEHICLE_EGPU_POWER_THERMAL_INTEGRATION_KR.md)
+상세 설계: [차량용 eGPU 전원·발열·팬소음·신뢰성 통합 설계](docs/VEHICLE_EGPU_POWER_THERMAL_INTEGRATION_KR.md)
 
 ---
 
@@ -152,6 +152,41 @@ p95/p99 model latency / frame drop 측정
 현재 model loop는 20 Hz이므로 nominal period는 50 ms입니다. 초기 연구 기준으로 p99 model execution을 40 ms 이하로 두는 등 margin을 적용해 볼 수 있으나, 이는 공식 openpilot 기준이 아니라 실제 end-to-end 측정으로 수정할 연구값입니다.
 
 상세 설계: [Chestnut Adaptive Power / Thermal / Noise Control](docs/CHESTNUT_POWER_THERMAL_CONTROL_DESIGN_KR.md)
+
+---
+
+# 싼타페 적용 방향
+
+현재 사용자의 싼타페 정확 연식/세대가 확인되지 않아 MX5와 TM을 모두 조사했다. 두 세대의 공식 매뉴얼 모두 12 V accessory/power outlet을 **180 W 이하**로 규정한다.
+
+RX 9060의 132 W TBP는 숫자상 180 W 안에 들어오지만 power-stage 손실, Chestnut 자체 소비전력, 순간부하까지 고려해야 하므로 초기에는 순정 outlet으로 계측하고 장기적으로 dedicated fused power path 여부를 결정한다.
+
+설치 위치 우선순위는:
+
+1. 조수석 하부 독립 tray + intake/exhaust 분리
+2. 조수석 발밑 보호 bracket — 초기 시험
+3. 화물칸 — USB 길이/5 Gbps link 별도 검증 후
+
+상세: [싼타페 + Chestnut/eGPU 설치 설계](docs/SANTAFE_CHESTNUT_INSTALLATION_KR.md)
+
+---
+
+# RX 9060과 Chestnut만 가능한가?
+
+아니다. comma는 공식적으로 **Chestnut eGPU dock only를 자기 GPU와 power supply로 사용할 수 있다고 판매**한다.
+
+다만 현재 openpilot big-model build는 `DEV=USB+AMD:LLVM`을 사용하고 runtime telemetry도 `Device["AMD"]`를 직접 읽는다. 또한 comma four는 Chestnut-specific USB ID와 custom firmware를 확인한다.
+
+따라서:
+
+- Chestnut + RX 9060 = 공식 baseline
+- Chestnut + 다른 AMD GPU = 실험 가능, 개별 검증 필요
+- NVIDIA GPU = 현재 Chestnut openpilot path의 plug-and-play 지원으로 볼 수 없음
+- 일반 USB4/Thunderbolt eGPU dock = 현재 release의 Chestnut drop-in 대체품으로 확인되지 않음
+
+초기 연구에서는 **dock은 Chestnut으로 고정하고 GPU/PPT만 변경**하는 것이 가장 합리적이다.
+
+상세: [Chestnut GPU / eGPU Dock 호환성 분석](docs/GPU_DOCK_COMPATIBILITY_KR.md)
 
 ---
 
@@ -216,6 +251,8 @@ DISCONNECTED
 9. **Fallback validation** — eGPU fault 시 small model 전환의 연속성과 안정성 검증
 10. **Teacher/student pipeline** — big model behavior를 small model 개선에 활용
 11. **World-model evaluation** — long-tail 상황을 replay/generative simulation에서 반복 검증
+12. **Santa Fe install qualification** — power-sequence/heat-soak/noise/seat-clearance/USB routing 검증
+13. **GPU compatibility matrix** — 동일 Chestnut에서 AMD GPU별 performance/W/thermal/noise 비교
 
 ---
 
@@ -223,34 +260,15 @@ DISCONNECTED
 
 ## Stage A — Supervised L2 Excellence
 
-현재 센서/actuator 범위에서:
-
-- highway/arterial stability
-- curve
-- cut-in
-- lead behavior
-- congestion
-- construction/cones
-- merge
-
-성능과 reliability를 최대화합니다.
+현재 센서/actuator 범위에서 highway/arterial stability, curve, cut-in, lead behavior, congestion, construction/cones, merge 성능과 reliability를 최대화합니다.
 
 ## Stage B — Route-aware L2+
 
-- richer route context
-- side/rear sensing 또는 OEM sensor access 확대
-- stronger independent validator
+richer route context, side/rear sensing 또는 OEM sensor access 확대, stronger independent validator를 연구합니다.
 
 ## Stage C — L3+ 연구
 
-이 단계부터는 eGPU만으로 해결할 수 없습니다.
-
-- sensor redundancy
-- actuation diagnostics/redundancy
-- minimum-risk maneuver
-- functional-safety level validation
-
-이 필요합니다.
+이 단계부터는 eGPU만으로 해결할 수 없습니다. sensor redundancy, actuation diagnostics/redundancy, minimum-risk maneuver, functional-safety level validation이 필요합니다.
 
 ---
 
@@ -260,19 +278,16 @@ DISCONNECTED
 2. [Tesla·Waymo·Wayve·Mobileye·Autoware 등 자율주행 아키텍처 비교](docs/AUTONOMY_ARCHITECTURE_COMPARISON_KR.md)
 3. [차량용 eGPU 전원·발열·팬소음·신뢰성 통합 설계](docs/VEHICLE_EGPU_POWER_THERMAL_INTEGRATION_KR.md)
 4. [Chestnut Adaptive Power / Thermal / Noise Control 설계](docs/CHESTNUT_POWER_THERMAL_CONTROL_DESIGN_KR.md)
+5. [싼타페 + Chestnut/eGPU 설치 설계](docs/SANTAFE_CHESTNUT_INSTALLATION_KR.md)
+6. [Chestnut GPU / eGPU Dock 호환성 분석](docs/GPU_DOCK_COMPATIBILITY_KR.md)
 
 ---
 
 # 원칙
 
-이 저장소의 목표는 차량의 OEM 조향/제동 한계나 openpilot safety constraint를 우회하는 것이 아닙니다.
-
-연산 능력 확대는 actuator 권한 확대를 뜻하지 않습니다.
+이 저장소의 목표는 차량의 OEM 조향/제동 한계나 openpilot safety constraint를 우회하는 것이 아닙니다. 연산 능력 확대는 actuator 권한 확대를 뜻하지 않습니다.
 
 ```text
-Autonomy capability
-  ≠ GPU FLOPS alone
-
 Real-world capability
   = model intelligence
   × sensor coverage
@@ -291,9 +306,8 @@ Real-world capability
 - Chestnut product/setup: https://comma.ai/shop/chestnut
 - openpilot source: https://github.com/commaai/openpilot
 - openpilot releases: https://github.com/commaai/openpilot/blob/master/RELEASES.md
-- Tesla Q2 2026 Update: https://ir.tesla.com/_flysystem/s3/sec/000162828026049213/tsla-20260722-gen.pdf
+- Hyundai Santa Fe MX5 owner manual: https://ownersmanual.hyundai.com/manual/%EC%8B%BC%ED%83%80%ED%8E%98?countryCode=A99&langCode=ko_KR&projCode=MX5&year=2025
 - Tesla FSD evidence dashboard: https://www.tesla.com/fsd-evidence-dashboard
-- Waymo 6th-gen Driver: https://waymo.com/blog/2026/02/ro-on-6th-gen-waymo-driver/
 - Waymo World Model: https://waymo.com/blog/2026/02/the-waymo-world-model-a-new-frontier-for-autonomous-driving-simulation/
 - Wayve technology: https://wayve.ai/technology/
 - Mobileye products: https://www.mobileye.com/products/
@@ -301,7 +315,6 @@ Real-world capability
 - NVIDIA DRIVE Hyperion: https://www.nvidia.com/en-us/solutions/autonomous-vehicles/drive-hyperion/
 - AMD RX 9060: https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9060.html
 - tinygrad AMD runtime: https://github.com/tinygrad/tinygrad/blob/master/tinygrad/runtime/support/am/ip.py
-- TI automotive power/transient references: https://www.ti.com/tool/TIDA-01167
 - comma.ai Reddit community: https://www.reddit.com/r/Comma_ai/
 
 Last reviewed: 2026-09-07
