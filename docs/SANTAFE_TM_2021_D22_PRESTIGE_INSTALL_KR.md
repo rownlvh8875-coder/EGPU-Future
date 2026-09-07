@@ -1,240 +1,148 @@
 # 더 뉴 싼타페 TM 2021 D2.2 디젤 프레스티지 + comma four + Chestnut/eGPU 설치안
 
 작성일: 2026-09-07
-대상차량: **더 뉴 싼타페(TM) 2021년형 / Smartstream D2.2 디젤 / 프레스티지**
+대상차량: **더 뉴 싼타페(TM) 2021년식 / Smartstream D2.2 디젤 / 2WD / 5인승 / 프레스티지 / 조수석 전동시트 + 통풍시트**
 
-> 이 문서는 사용 차량이 확정된 뒤 작성한 전용 설치 기준이다. 5/7인승, 2WD/HTRAC, 세부 선택옵션은 아직 확정되지 않았으므로 시트 하부 브래킷의 최종 치수와 전원 배선 사양은 실차 확인 후 확정한다.
-
----
-
-## 1. 차량 기준
-
-현대자동차 2021 Santa Fe 공식 자료 기준 Smartstream D2.2는 2,151 cc, 194 PS / 3,800 rpm, 45.0 kgf·m / 1,750~2,750 rpm, 8단 DCT 조합이다.
-
-현대 인증중고차에도 `2021 싼타페(TM) 디젤 2.2 2WD 5인승 프레스티지`가 확인되어 해당 연식/파워트레인/트림 조합이 실제 판매된 구성임을 확인했다.
-
-Sources:
-- https://www.hyundai.com/kr/ko/brand/brandstory/model/santafe-history/2021-santafe
-- https://certified.hyundai.com/
+> 차량 사양은 사용자 실차 기준으로 확정했다. 본 문서는 이 사양을 기준으로 한다. 브래킷의 최종 mm 치수와 전용 전원선 규격은 순정 시트 하부 실측 및 해당 VIN 기준 현대 정비정보 확인 후 확정한다.
 
 ---
 
-## 2. 이 차량에서의 설치 우선순위
+## 1. 조사 결과 요약
 
-### 1순위 — 조수석 하부 독립 브래킷
+현대 TM 정비자료 계열에는 시트 전장에 대해 `Passenger power seat`, `Seat Heater (Air Ventilation)`, `Air Ventilation Seat`의 component location, schematic, connector/repair procedure가 존재한다.
 
-상시 설치 최종 목표 위치.
+공개 확인 가능한 TM 정비자료에서 통풍시트 계통은 다음 부품을 별도로 가진다.
 
-이유:
+- Air ventilation seat blower
+- Air ventilation seat control unit (Passenger only)
+- Air ventilation seat duct
+- Passenger blower power / speed / RPM 관련 신호
+- Passenger heater/ventilation 관련 전원 및 ground
 
-- windshield의 comma four에서 3 m USB3 cable로 접근하기 현실적
-- 승객 시야/수납공간 침범이 작음
-- cabin HVAC 환경을 활용 가능
-- fan noise가 조수석 발밑 노출 설치보다 줄어듦
-- 점검/탈거도 cargo area보다 쉬움
+따라서 조수석 아래는 단순 빈 공간이 아니며 GPU를 시트 중앙 아래에 임의로 넣는 방식은 피한다.
 
-단, **시트 바닥에 GPU를 직접 놓으면 안 된다.**
+또한 2021 Santa Fe 계열 fuse 자료에는 `P/SEAT (PASS)` 30 A 회로가 별도로 존재한다. 이 회로는 조수석 전동시트용이며 eGPU 전원 인출점으로 사용하지 않는다.
 
-확인사항:
+---
 
-- 조수석 시트 full forward/backward travel
-- 시트 높이 조절 전 구간
-- 시트 하부 OEM harness / connector / seat motor
-- SRS 및 occupancy 관련 하네스
-- 통풍시트 관련 blower/intake가 실제 옵션으로 존재하는지
-- 2열 승객 발공간
-- 순정 HVAC air path
+## 2. 조수석 하부 설치 판단
 
-권장 구조:
+### 원칙
+
+최종 설치 위치는 여전히 조수석 하부가 유력하지만 다음 순정 영역을 모두 피한 별도 tray로 제한한다.
 
 ```text
-Passenger seat
-│
-├── OEM seat rail / wiring / connectors   [NO TOUCH]
-│
-└── independent rigid GPU tray
-      ├── floor/carpet에서 이격
-      ├── front 또는 cabin side = cool-air intake
-      ├── rear/center side = hot-air exhaust
-      ├── rubber vibration isolator
-      └── positive mechanical retention
+Passenger seat cushion
+       │
+       ├─ ventilation blower / duct zone       [KEEP CLEAR]
+       ├─ power-seat motor/linkage zone        [KEEP CLEAR]
+       ├─ seat wiring/connectors                [KEEP CLEAR]
+       ├─ SRS / occupant-related wiring         [NO TOUCH]
+       │
+       └─ remaining verified envelope
+              └─ independent Chestnut/GPU tray
 ```
 
-브래킷은 기존 시트/SRS 고정 볼트를 임의로 공유하지 않고 별도 고정점을 우선 검토한다. 충돌 안전과 시트 구조에 영향을 주는 가공은 피한다.
+### 금지
+
+- 통풍시트 blower 흡기 앞을 GPU나 방음재로 막기
+- 통풍시트 duct를 GPU 냉각용으로 절단/분기하기
+- 시트 모터나 linkage 이동영역에 케이블 배치
+- SRS/seat connector에 piggyback 전원 연결
+- P/SEAT(PASS) 30 A fuse를 eGPU 전원원으로 전용
+- 시트/SRS 구조 볼트에 임의 bracket을 함께 체결
+
+### 실제 브래킷 위치 확정 절차
+
+1. 조수석을 최전방/최후방, 최저/최고로 각각 이동
+2. 전동시트 motor/linkage swept volume 표시
+3. 통풍시트 blower intake와 duct 위치 표시
+4. 순정 harness/connector 위치 표시
+5. 바닥/센터콘솔/2열 HVAC duct 위치 표시
+6. 남은 공간의 폭×길이×높이를 실측
+7. RX 9060 실제 카드 외형과 connector/cable bend radius를 포함해 envelope 비교
+8. intake/exhaust가 서로 재순환하지 않는 방향으로 tray 결정
 
 ---
 
-### 2순위 — 조수석 발밑 측면/상단
+## 3. 권장 설치안
 
-초기 시험용 1순위.
+### Phase A — 실차 계측 전
 
-처음 2~4주 동안은 이 위치가 유리하다.
-
-- GPU/Chestnut LED와 cable 즉시 점검
-- 12 V plug 발열 확인
-- 팬 RPM/소음 직접 확인
-- HVAC 냉풍 효과 확인
-- USB disconnect 여부 확인
-
-장기 설치 시에는 물/우산/발 간섭 및 충돌시 이탈 위험 때문에 rigid protective tray가 필요하다.
-
----
-
-### 3순위 — 화물칸
-
-소음에는 가장 유리할 수 있으나 기본안으로는 보류한다.
-
-이유:
-
-- comma 기본 USB3 cable 3 m
-- comma four부터 rear cargo까지 실제 routing은 3 m를 넘을 가능성이 높음
-- current openpilot Chestnut code는 USB speed < 5000 Mbps를 slow USB로 경고함
-- extension/active cable 추가 시 EMI, link error, reconnect failure가 새 변수로 들어감
-
-cargo installation은 `USB signal integrity project`로 별도 검증 후 선택한다.
-
----
-
-## 3. 전원 — 이 차량에서의 실제 권장안
-
-현대차 power-outlet 매뉴얼 계열은 **12 V / 180 W 이하** 전기기기를 사용하도록 규정한다.
-
-Chestnut Ready-to-Drive의 RX 9060은 AMD 기준 Typical Board Power가 **132 W**다.
-
-단순 차이:
+초기에는 조수석 발밑의 rigid temporary tray에 stock Chestnut + RX 9060을 설치한다.
 
 ```text
-Vehicle outlet limit: 180 W
-RX 9060 TBP:         132 W
-Nominal difference:   48 W
-```
-
-하지만 48 W가 그대로 여유전력은 아니다.
-
-추가 요소:
-
-- Chestnut board 소비전력
-- DC/DC conversion loss
-- cable/contact resistance
-- 순간 power excursion
-- plug/socket temperature rise
-
-### Phase 1 권장
-
-순정 회로를 건드리지 않고 먼저 다음 구성으로 실차 데이터를 모은다.
-
-```text
-2021 Santa Fe TM 12 V outlet
-        ↓
-comma supplied car power cable
-        ↓
+comma four (windshield)
+      │ 3 m USB3
+      ▼
 Chestnut + RX 9060
+(passenger footwell temporary tray)
+      │
+      ▼
+OEM 12 V outlet
 ```
 
-조건:
+이 단계에서 전원/열/팬소음/USB 안정성을 먼저 확인한다.
 
-- 해당 outlet에 splitter 사용하지 않음
-- 냉장고/청소기/inverter 등 다른 고부하 병렬 사용 금지
-- socket plug 완전 삽입
-- 최초 30분/1시간/장거리 주행 후 plug 및 socket 주변 발열 확인
-- `supplyVoltage / supplyCurrent / supplyFault / powerDrawW` 기록
+### Phase B — 조수석 하부 상시 설치
 
-### Phase 2 조건부 전용 전원
-
-다음 중 하나라도 반복되면 전용 전원 회로를 검토한다.
-
-- engine start/ISG restart에서 Chestnut power lost
-- big model load timeout
-- supplyFault
-- socket/plug 과열
-- 장거리 주행에서 voltage drop
-- 최대부하에서 불안정한 PCIe/USB link
-
-권장 architecture:
+순정 통풍시트 및 전동시트 영역을 실측한 뒤:
 
 ```text
-Vehicle low-voltage source
-  → source-side fuse
-  → reverse-polarity/transient protection
-  → automotive power stage
-  → ACC/ignition controlled enable
-  → low-voltage cutoff
-  → Chestnut + GPU
+Cabin/front cool air
+       ↓
+ GPU intake
+ [ GPU + Chestnut ] ──→ rear/center-side exhaust
+       │
+ independent rigid tray
+       │
+ vibration isolator + positive retention
 ```
 
-**OEM outlet fuse를 더 큰 값으로 교체해서 해결하지 않는다.** fuse는 wire 보호 기준으로 선정되어야 한다.
+GPU는 카펫에 직접 놓지 않고 흡기면과 바닥을 이격한다. 시트 full travel에서 케이블까지 포함해 간섭이 없어야 한다.
 
 ---
 
-## 4. 디젤/ISG 차량에서 특히 볼 항목
+## 4. 전원
 
-2021 D2.2에는 ISG 운용 가능성이 있으므로 다음 시험을 별도 수행한다.
+싼타페 TM 계열 power outlet은 매뉴얼 기준 12 V, 180 W 이하 사용 조건이다. RX 9060 TBP는 132 W이므로 초기 stock test는 순정 outlet + comma car-power cable로 수행한다.
 
-1. cold start
-2. warm restart
-3. ISG stop
-4. ISG restart
-5. ACC → engine ON
-6. engine OFF 후 outlet power 유지시간
-7. remote start 사용 시 outlet 상태(해당 기능 사용 차량일 경우)
+하지만 48 W 차이를 전부 margin으로 보지 않는다. Chestnut board, 변환손실, 케이블/접점손실, transient가 존재한다.
 
-각 이벤트 전후로 기록:
+### 초기 시험 로그
 
 - supplyVoltage
 - supplyCurrent
 - supplyFault
-- Chestnut USB present
+- GPU powerDrawW
 - PCIe LTSSM
-- ChestnutActive
-- big-model load/recovery duration
+- USB speed/link errors
+- plug/socket 온도
 
-현대 Sonata에서 remote start 시 accessory outlet이 켜지지 않아 eGPU model load가 timeout된 openpilot issue #38685가 존재하므로, 싼타페에서도 동일하다고 가정하지 말고 **실차 power sequencing을 실제 측정**한다.
+### 별도 전원으로 전환하는 조건
 
-Source:
-- https://github.com/commaai/openpilot/issues/38685
+- 시동/ISG 재시동에서 power lost 반복
+- plug/socket 비정상 온도상승
+- supplyFault
+- big model load failure
+- PCIe/USB instability가 전압강하와 상관됨
 
----
-
-## 5. 발열 — TM 실내에서의 권장 airflow
-
-RX 9060 132 W급 부하는 좁은 시트 하부 공간에서는 의미 있는 열원이다.
-
-### 권장 airflow
-
-```text
-Front/cabin cool air
-       ↓
- [ GPU intake ]
- [   GPU      ] ───→ rear/center-side exhaust
-       ↑
-    floor gap
-```
-
-핵심은 `hot exhaust → GPU intake` 재순환을 막는 것이다.
-
-초기 설계 기준:
-
-- intake 주변 자유공간 30~50 mm부터 시작하여 실측
-- GPU를 carpet에 바로 붙이지 않음
-- 완전 밀폐 방음박스 금지
-- 필요시 120 mm급 저RPM 보조팬으로 공간 전체 air exchange
-- 여름 heat-soak 후 바로 full power를 요구하지 않고 warm-up/de-rate policy 적용
-
-현재 openpilot Chestnut code는 GPU 100°C, memory 95°C 및 5°C hysteresis로 overheat를 판단한다. 차량용 프로젝트에서는 이 hard limit에 닿기 전에 선제적으로 power를 낮추는 정책을 목표로 한다.
+전용 회로가 필요해지면 차량 LV source에서 source-side fuse, automotive transient/reverse-polarity protection, ACC-controlled enable, low-voltage cutoff를 거치는 별도 회로를 설계한다. 순정 P/SEAT(PASS) 30 A 회로를 GPU 전원으로 공유하지 않는다.
 
 ---
 
-## 6. 팬소음 — 이 차량에서의 목표
+## 5. 발열/소음
 
-조수석 하부는 cabin과 직접 연결된 공간이므로 thermal management가 곧 noise management다.
+조수석 하부는 통풍시트 blower가 이미 존재하므로 GPU 열을 추가했을 때 두 시스템이 서로의 흡기온도를 악화시키지 않도록 해야 한다.
 
-권장 우선순위:
+### 권장 thermal policy
 
-1. GPU PPT 최적화
-2. hot-air recirculation 차단
-3. 큰 저RPM auxiliary fan
-4. vibration isolation
-5. 마지막에만 부분적인 acoustic treatment
+- Normal: 기본 PPT
+- Warm: GPU PPT 선제 감소
+- Hot: 추가 de-rate + small-model standby
+- Unsafe/deadline violation: big model disable → small model fallback
+
+현재 openpilot Chestnut hard overheat 판정은 GPU 100°C, memory 95°C, hysteresis 5°C다. 차량 프로젝트에서는 이 hard limit보다 훨씬 앞에서 de-rate하는 것을 목표로 한다.
 
 ### PPT sweep
 
@@ -242,101 +150,52 @@ Front/cabin cool air
 132 → 120 → 110 → 100 → 90 W
 ```
 
-각 step에서:
+각 단계에서 p50/p95/p99 inference latency, frame drop, hotspot, memory temp, fan RPM, cabin dBA, supply current를 기록한다. 현재 model loop는 20 Hz(50 ms nominal period)이므로 deadline margin을 만족하는 최저 PPT를 TM용 quiet/efficient point로 선택한다.
 
-- p50/p95/p99 inference latency
-- frame drop
-- GPU hotspot
-- memory temperature
-- fan RPM
-- cabin dBA
-- power draw
-
-를 기록한다.
-
-현재 model loop는 20 Hz이므로 nominal period는 50 ms다. 실제 end-to-end deadline margin을 만족하는 가장 낮은 PPT가 이 싼타페용 `quiet/efficient operating point`가 된다.
+필요하면 120 mm급 저RPM 보조팬으로 시트 아래 공간 전체의 공기교환을 돕되 통풍시트 blower intake를 방해하지 않는다.
 
 ---
 
-## 7. 최종 권장 패키지
+## 6. 차량 배선/도면 조사 상태
 
-### 초기 검증 패키지
+확인된 자료 종류:
 
-```text
-comma four (windshield)
-      │
-      │ 3 m USB3
-      ▼
-Chestnut + RX 9060
-(passenger footwell, rigid temporary tray)
-      │
-      ▼
-OEM 12 V outlet
-```
+- Passenger power seat circuit
+- Seat ventilation circuit (non-hybrid)
+- Air ventilation seat component location
+- Air ventilation seat schematic
+- Seat heater/ventilation connector signal list
+- Instrument-panel fuse distribution
+- P/SEAT(PASS) 30 A passenger-seat circuit
 
-### 최종 상시 패키지
-
-```text
-comma four
-   │ routed USB3
-   ▼
-Passenger-seat-under independent tray
-   ├─ front/cabin intake
-   ├─ rear/side exhaust
-   ├─ rigid retention
-   ├─ vibration isolator
-   ├─ strain relief
-   └─ telemetry logging
-
-Power:
-OEM 180 W outlet if validated stable
-OR
-Dedicated automotive protected feed if tests show need
-```
+현대의 정식 정비정보는 VIN/시장별 세부 사양을 기준으로 확인하는 것이 가장 정확하다. 공개된 해외 2021 Santa Fe 자료는 엔진/트림이 한국형 D2.2와 다를 수 있으므로 connector pin이나 fuse 번호를 그대로 한국형 차량에 적용하지 않는다. 현재 공개 자료는 **물리적 배치와 회로 구조를 이해하는 참고자료**로 사용하고, 실제 배선 변경 전에는 한국형 VIN 기준 현대 정비정보/실차 fuse label을 대조한다.
 
 ---
 
-## 8. 다음 실차 확인 항목
+## 7. 다음 실차 작업 때 필요한 사진/치수
 
-아직 확정되지 않은 항목은 실제 차량에서 사진/측정 후 결정한다.
+최종 CAD 브래킷을 만들기 위해 다음만 실차에서 확보하면 된다.
 
-- 5인승 / 7인승
-- 2WD / HTRAC
-- 조수석 전동/통풍시트 실제 구성
-- 조수석 하부 모듈/하네스 배치
-- 시트 레일 간 폭과 가용 높이
-- center console → passenger-seat-under cable route
-- 12 V outlet 실제 위치와 plug clearance
-- comma four → GPU 실제 USB routing length
-- GPU 장착 후 시트 full-travel clearance
+1. 조수석을 최대로 뒤로 보낸 상태의 시트 아래 전방 사진
+2. 최대로 앞으로 보낸 상태에서 2열 쪽에서 본 시트 아래 사진
+3. 시트 아래 좌/우 측면 사진
+4. 통풍시트 ON 상태에서 blower 위치 확인
+5. 바닥에서 가장 낮은 움직이는 시트 부품까지 높이
+6. 좌우 시트레일 안쪽 간격
+7. 사용 예정 RX 9060 카드의 실제 길이/높이/두께
+8. comma four에서 A-pillar/door-sill/center-console 경로로 조수석 하부까지 USB 케이블 실측 길이
 
-**이 항목을 측정하기 전에는 브래킷 치수, fuse ampere, wire gauge를 확정하지 않는다.**
-
----
-
-## 9. 다음 개발/측정 순서
-
-1. stock Chestnut + RX 9060으로 bench/vehicle telemetry logger 준비
-2. 조수석 발밑 임시 장착
-3. 정상시동/ISG/원격시동 power-sequence 기록
-4. 30/60/120분 thermal soak test
-5. PPT sweep와 fan RPM/dBA/latency 측정
-6. 조수석 하부 실측
-7. 최종 bracket CAD 설계
-8. 장기 주행 vibration/USB-link validation
-9. 전용 전원 필요 여부 최종 결정
+이 8개가 확보되면 GPU tray의 실제 envelope와 intake/exhaust 방향을 확정할 수 있다.
 
 ---
 
 ## Sources
 
-- Hyundai 2021 Santa Fe: https://www.hyundai.com/kr/ko/brand/brandstory/model/santafe-history/2021-santafe
-- Hyundai power outlet guidance: https://ownersmanual.hyundai.com/
-- Hyundai certified used vehicle example, 2021 Santa Fe TM D2.2 Prestige: https://certified.hyundai.com/
+- Hyundai Santa Fe TM seat electrical service information: https://www.hsafe4.com/hyundai_santa_fe_tm_seat_electrical-1237.html
+- Hyundai Santa Fe TM seat ventilation schematic: https://www.hsafe4.com/hyundai_santa_fe_seat_heater_air_ventilation_schematic_diagrams-1251.html
+- Santa Fe IV facelift wiring index: https://diagnostdata.com/hyundai/santa-fe/iv-facelift-2020-2024/
+- Seat ventilation wiring, non-hybrid: https://diagnostdata.com/hyundai/santa-fe/iv-facelift-2020-2024/system/power-seats/seat-ventilation-circuit-except-hybrid/
+- 2021 Santa Fe owner/service manual mirror: https://www.carmanualsonline.info/hyundai-santa-fe-2021-owners-manual/5
 - comma Chestnut: https://blog.comma.ai/chestnut/
-- Chestnut product/setup: https://comma.ai/shop/chestnut
-- AMD RX 9060: https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9060.html
-- openpilot Chestnut status: https://github.com/commaai/openpilot/blob/master/openpilot/system/hardware/chestnut/status.py
-- openpilot modeld: https://github.com/commaai/openpilot/blob/master/openpilot/selfdrive/modeld/modeld.py
-- openpilot issue #38685: https://github.com/commaai/openpilot/issues/38685
-- tinygrad AMD power control: https://github.com/tinygrad/tinygrad/blob/master/tinygrad/runtime/support/am/ip.py
+- openpilot Chestnut status/modeld: https://github.com/commaai/openpilot
+- AMD RX 9060 specifications: https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9060.html
