@@ -39,6 +39,7 @@ from egpu_future.shadow_tap import DEFAULT_SOCKET_PATH, ShadowInputSnapshot, Sha
 
 
 SHADOW_SCHEMA_VERSION = 1
+COMPARISON_RATE_HZ = 20.0
 
 
 def _backend(value: str) -> Backend:
@@ -96,15 +97,12 @@ def _find_streams(params: Params):
       continue
 
     if carrot_style:
-      # Match Carrot's select_vision_streams(): road stays primary when it is
-      # available; UseWideCamera controls whether wide is also consumed.
       use_wide_camera = bool(params.get("UseWideCamera", return_default=True))
       if road in available:
         return road, use_wide_camera and wide in available
       if use_wide_camera and wide in available:
         return wide, False
     else:
-      # Current official openpilot consumes narrow + wide when both exist.
       if road in available:
         return road, wide in available
       if wide in available:
@@ -159,8 +157,6 @@ def _action_compat(model_output: dict, prev_action, snap: ShadowInputSnapshot, p
   action_params = inspect.signature(get_action_from_model).parameters
   base_args = (model_output, prev_action, float(snap.action_t[0]), float(snap.action_t[1]), snap.v_ego)
   if "lat_smooth_seconds" in action_params:
-    # Current Carrot extends the official action function with dynamic lateral
-    # smoothing and VEgoStopping. Reuse the same implementation and Params.
     base_lat_smooth = params.get_float("LatSmoothSec") * 0.01
     v_ego_stopping = params.get_float("VEgoStopping") * 0.01
     dyn_fn = getattr(modeld_module, "get_lat_smooth_seconds_dynamic", None)
@@ -190,8 +186,8 @@ def main() -> int:
   ap = argparse.ArgumentParser()
   ap.add_argument("--tap-socket", default=DEFAULT_SOCKET_PATH)
   ap.add_argument("--output", default="/tmp/egpu_future_shadow_modeld.jsonl")
-  ap.add_argument("--max-hz", type=float, default=20.0,
-                  help="20 Hz for temporal comparison; lower values are load-probe only")
+  ap.add_argument("--max-hz", type=float, default=COMPARISON_RATE_HZ,
+                  help="20 Hz accepts upstream cadence without extra rate limiting; lower values are load-probe only")
   ap.add_argument("--settle-frames", type=int, default=40,
                   help="consecutive shadow frames required before comparisonEligible")
   ap.add_argument("--nice", type=int, default=10,
@@ -200,8 +196,8 @@ def main() -> int:
   ap.add_argument("--flush-every", type=int, default=20)
   args = ap.parse_args()
 
-  if args.max_hz <= 0:
-    raise SystemExit("--max-hz must be > 0")
+  if args.max_hz <= 0 or args.max_hz > COMPARISON_RATE_HZ:
+    raise SystemExit(f"--max-hz must be > 0 and <= {COMPARISON_RATE_HZ:g}")
   if args.settle_frames < 1:
     raise SystemExit("--settle-frames must be >= 1")
 
@@ -215,10 +211,16 @@ def main() -> int:
   main_client = _connect_client(main_stream)
   extra_client = _connect_client(wide_stream) if use_extra else None
 
-  # Only the on-device model is supported by this first live prototype. This
-  # avoids a second process contending for Chestnut/USB resources.
   shadow_backend = Backend.SMALL
-  admission = ShadowAdmissionController(shadow_backend, AdmissionPolicy(max_hz=args.max_hz, require_opposite_backend=True))
+  # At the nominal 20 Hz comparison rate, do not add a second 50 ms gate on
+  # top of the upstream model cadence. Real frame timing jitter can be slightly
+  # below 50 ms and a strict limiter would create artificial gaps. A limiter is
+  # used only for deliberate sub-20-Hz load probes.
+  admission_rate_hz = None if args.max_hz >= COMPARISON_RATE_HZ else args.max_hz
+  admission = ShadowAdmissionController(
+    shadow_backend,
+    AdmissionPolicy(max_hz=admission_rate_hz, require_opposite_backend=True),
+  )
   continuity = ContinuityTracker(args.settle_frames)
   prev_action = log.ModelDataV2.Action()
 
@@ -226,8 +228,14 @@ def main() -> int:
   events_since_flush = 0
 
   with out_path.open("a", encoding="utf-8", buffering=1) as out, ShadowTapReceiver(args.tap_socket) as tap:
-    _write_event(out, {"type": "startup", "shadowBackend": shadow_backend.value, "maxHz": args.max_hz,
-                       "settleFrames": args.settle_frames, "resourceIsolation": isolation}, flush=True)
+    _write_event(out, {
+      "type": "startup",
+      "shadowBackend": shadow_backend.value,
+      "maxHz": args.max_hz,
+      "admissionRateLimitHz": admission_rate_hz,
+      "settleFrames": args.settle_frames,
+      "resourceIsolation": isolation,
+    }, flush=True)
 
     while True:
       snap = tap.recv_latest()
@@ -243,14 +251,12 @@ def main() -> int:
         _record_skip(out, snap, decision.reason.value)
         continue
 
-      # Defer model allocation until a big-model active frame is actually seen.
       if model is None:
         load_start = time.monotonic_ns()
         model = ModelState(main_client.width, main_client.height, False)
         _warmup_compat(model)
         _write_event(out, {"type": "model_loaded", "shadowBackend": "small",
                            "loadMs": (time.monotonic_ns() - load_start) / 1e6}, flush=True)
-        # The frame that triggered model loading is too old to compare.
         continuity = ContinuityTracker(args.settle_frames)
         prev_action = log.ModelDataV2.Action()
         _record_skip(out, snap, "model_loaded_on_this_frame")
