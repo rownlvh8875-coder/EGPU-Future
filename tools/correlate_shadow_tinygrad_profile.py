@@ -37,7 +37,7 @@ def main() -> None:
   ap = argparse.ArgumentParser(description="Map shadow frames to tinygrad hardware kernel ranges")
   ap.add_argument("shadow_jsonl", type=Path)
   ap.add_argument("profile", type=Path, help="trusted tinygrad profile.pkl from PROFILE=1")
-  ap.add_argument("--device-prefix", default="QCOM")
+  ap.add_argument("--device", default="QCOM", help="exact hardware device name; QCOM:COPY is intentionally excluded")
   ap.add_argument("--tolerance-us", type=float, default=50.0)
   ap.add_argument("--frames-output", type=Path, default=Path("shadow_kernel_frames.jsonl"))
   ap.add_argument("--summary-output", type=Path, default=Path("shadow_kernel_summary.json"))
@@ -49,17 +49,15 @@ def main() -> None:
     events = pickle.load(f)  # trusted local tinygrad output only
 
   total_outputs, windows = load_shadow(args.shadow_jsonl)
-  kernels = normalize_profile_events(events, device_prefix=args.device_prefix, align_to_host=True)
+  kernels = normalize_profile_events(events, device_prefix=args.device, align_to_host=True, exact_device=True)
   correlated = correlate_windows(windows, kernels, tolerance_us=args.tolerance_us)
+  offsets = device_clock_offsets_us(events)
   summary = {
     "shadowOutputs": total_outputs,
     "modelWindows": len(windows),
     "kernelRanges": len(kernels),
-    "devicePrefix": args.device_prefix,
-    "deviceClockOffsetsUs": {
-      k: v for k, v in device_clock_offsets_us(events).items()
-      if k.upper().startswith(args.device_prefix.upper())
-    },
+    "device": args.device,
+    "deviceClockOffsetsUs": {args.device: offsets.get(args.device)} if args.device in offsets else {},
     "correlation": summarize_correlations(correlated),
     "timingBasis": "tinygrad HCQ hardware timestamps aligned to host monotonic using ProfileDeviceEvent.tdiff",
     "warning": "profile.pkl is trusted executable pickle data; never load untrusted files",
