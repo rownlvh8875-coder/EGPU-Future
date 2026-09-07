@@ -19,7 +19,7 @@ TARGET_MODELD_PATH = "openpilot/selfdrive/modeld/modeld.py"
 
 IMPORT_BLOCK = """# EGPU-FUTURE SHADOW TAP IMPORT BEGIN\nfrom openpilot.selfdrive.modeld.egpu_future_shadow_tap import EgpuFutureShadowTap\n# EGPU-FUTURE SHADOW TAP IMPORT END\n"""
 INIT_BLOCK = """  # EGPU-FUTURE SHADOW TAP INIT BEGIN\n  shadow_tap = EgpuFutureShadowTap()\n  # EGPU-FUTURE SHADOW TAP INIT END\n"""
-SEND_BLOCK = """    # EGPU-FUTURE SHADOW TAP SEND BEGIN\n    if shadow_tap.enabled and not prepare_only:\n      shadow_tap.send(\n        model=model,\n        meta_main=meta_main,\n        meta_extra=meta_extra,\n        state_frame_id=frame_id,\n        v_ego=v_ego,\n        transform_main=model_transform_main,\n        transform_extra=model_transform_extra,\n        inputs=inputs,\n      )\n    # EGPU-FUTURE SHADOW TAP SEND END\n\n"""
+SEND_BLOCK = """    # EGPU-FUTURE SHADOW TAP SEND BEGIN\n    if shadow_tap.enabled and not prepare_only:\n      shadow_tap.send(\n        model=model,\n        meta_main=meta_main,\n        meta_extra=meta_extra,\n        state_frame_id=frame_id,\n        v_ego=v_ego,\n        transform_main=model_transform_main,\n        transform_extra=model_transform_extra,\n        inputs=inputs,\n      )\n    # EGPU-FUTURE SHADOW TAP SEND END\n"""
 
 
 @dataclass(frozen=True)
