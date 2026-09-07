@@ -12,14 +12,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-PINNED_CARROT_HEAD = "2c508b1dde53b9a996546993e1c7b5b74b489541"
+# Latest reviewed branch tip. The modeld blob is the hard integration boundary;
+# Carrot often advances through documentation-only commits without changing it.
+PINNED_CARROT_HEAD = "1310ed43fe70a903d31589295f4dabe37649dab2"
 PINNED_MODELD_GIT_BLOB = "e4de3eb2236f6bb0c54c87666099147311602f4f"
 TARGET_RUNTIME_PATH = "openpilot/selfdrive/modeld/egpu_future_shadow_tap.py"
 TARGET_MODELD_PATH = "openpilot/selfdrive/modeld/modeld.py"
 
 IMPORT_BLOCK = """# EGPU-FUTURE SHADOW TAP IMPORT BEGIN\nfrom openpilot.selfdrive.modeld.egpu_future_shadow_tap import EgpuFutureShadowTap\n# EGPU-FUTURE SHADOW TAP IMPORT END\n"""
 INIT_BLOCK = """  # EGPU-FUTURE SHADOW TAP INIT BEGIN\n  shadow_tap = EgpuFutureShadowTap()\n  # EGPU-FUTURE SHADOW TAP INIT END\n"""
-SEND_BLOCK = """    # EGPU-FUTURE SHADOW TAP SEND BEGIN\n    if shadow_tap.enabled and not prepare_only:\n      shadow_tap.send(\n        model=model,\n        meta_main=meta_main,\n        meta_extra=meta_extra,\n        state_frame_id=frame_id,\n        v_ego=v_ego,\n        transform_main=model_transform_main,\n        transform_extra=model_transform_extra,\n        inputs=inputs,\n      )\n    # EGPU-FUTURE SHADOW TAP SEND END\n"""
+SEND_BLOCK = """    # EGPU-FUTURE SHADOW TAP SEND BEGIN\n    if not prepare_only:\n      shadow_tap.send(\n        model=model,\n        meta_main=meta_main,\n        meta_extra=meta_extra,\n        state_frame_id=frame_id,\n        v_ego=v_ego,\n        transform_main=model_transform_main,\n        transform_extra=model_transform_extra,\n        inputs=inputs,\n      )\n    # EGPU-FUTURE SHADOW TAP SEND END\n"""
 
 
 @dataclass(frozen=True)
@@ -42,7 +44,6 @@ def _insert_once(source: str, anchor: str, replacement: str, description: str) -
 
 def patch_modeld_text(source: str) -> str:
   if "EGPU-FUTURE SHADOW TAP IMPORT BEGIN" in source:
-    # Idempotent only when all blocks are already present.
     summary = patch_summary(source)
     if not summary.complete:
       raise ValueError(f"partial EGPU-Future patch detected: {summary}")
@@ -60,12 +61,7 @@ def patch_modeld_text(source: str) -> str:
   )
 
   send_anchor = "    mt1 = time.perf_counter()\n    try:\n      model_output = model.run(bufs, transforms, inputs, prepare_only)\n"
-  source = _insert_once(
-    source,
-    send_anchor,
-    SEND_BLOCK + send_anchor,
-    "model.run timing",
-  )
+  source = _insert_once(source, send_anchor, SEND_BLOCK + send_anchor, "model.run timing")
 
   summary = patch_summary(source)
   if not summary.complete:
@@ -89,8 +85,6 @@ def _strip_block(source: str, begin: str, end: str) -> str:
   if end_pos < 0:
     raise ValueError(f"unterminated marker block: {begin}")
   end_pos += len(end)
-  # Marker strings do not contain their indentation. Remove the complete lines,
-  # including a single trailing newline when present.
   line_start = source.rfind("\n", 0, begin_pos) + 1
   if end_pos < len(source) and source[end_pos] == "\n":
     end_pos += 1
