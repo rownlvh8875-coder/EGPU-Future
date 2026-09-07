@@ -37,8 +37,12 @@ def test_patch_is_marker_limited_and_reversible():
   assert summary.complete
   verify_control_path_unchanged(SOURCE, patched)
   assert strip_integration_blocks(patched) == SOURCE
-  assert "if shadow_tap.enabled and not prepare_only:" in patched
+  assert "if not prepare_only:" in patched
+  assert "shadow_tap.send(" in patched
   assert "state_frame_id=frame_id" in patched
+  # Dynamic control is internal to the standalone sender; active model logic
+  # never branches on the tap result.
+  assert "if shadow_tap.enabled" not in patched
 
 
 def test_patch_is_idempotent_when_complete():
