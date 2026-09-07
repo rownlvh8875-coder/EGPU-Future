@@ -1,0 +1,54 @@
+{
+  "sourceRepository": "ajouatom/openpilot",
+  "sourceBranch": "carrot-egpu-yolo",
+  "sourcePath": "docs/egpu_yolo_next_steps.md",
+  "observedAt": "2026-09-07",
+  "observations": {
+    "qcomLive": {
+      "input": "512x256",
+      "publicationHz": 3.85,
+      "fullLiveMedianMs": 120.0,
+      "continuousDisplayRetries": {
+        "4HzStoppedAfterRuns": 175,
+        "2HzStoppedAfterRuns": 94,
+        "stopCondition": "sampled model-publication gap >120ms",
+        "laterBaseline30sPublications": 600,
+        "laterBaselineMaxGapMs": 77.57,
+        "outlierCauseEstablished": false
+      }
+    },
+    "bicycleResolutionEvidence": {
+      "sceneSpecific": true,
+      "candidatePixelsAt512x256": [38, 22],
+      "matchingNv12BestBicycleConfidence": 0.0276,
+      "displayThreshold": 0.35,
+      "ultralyticsCpu": {
+        "512x256": 0.0215,
+        "640x384": 0.5764,
+        "896x512": 0.8532,
+        "1344x768": 0.8927,
+        "manualCrop384x256": 0.8861
+      },
+      "candidate640x384OnnxBytes": 12756343,
+      "candidate640x384Sha256": "e02d75ddde2a1792e0275af57e3c23dd8dc307aa64a6c2f86c8f1889618d7f76",
+      "candidateInstalledOnVehicle": false
+    },
+    "sharedEgpuHistoricalLatency": {
+      "shortMedianMs": 5.27,
+      "shortMaxMs": 5.73,
+      "laterOverrunMs": 24.887,
+      "currentStatus": "retired",
+      "requiredBreakdown": [
+        "GPU kernels",
+        "queue waits",
+        "USB readback",
+        "host scheduling",
+        "NMS",
+        "full camera-to-publication age"
+      ]
+    },
+    "fieldOfViewWarning": "The already-resident driving-warp input and the internal-GPU full-camera letterbox are not equivalent even when tensor dimensions match.",
+    "controlScope": "observational only; no validated automatic vehicle-control consumer"
+  },
+  "interpretation": "Use as experiment-design evidence only. Resolution confidence values are one-scene evidence, not an accuracy benchmark; the historical eGPU latency demonstrates tail-risk, not a stable performance guarantee."
+}
