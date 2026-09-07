@@ -33,8 +33,8 @@ class ModeldShadowTapBridge:
       return bool(getattr(model, "chestnut"))
     return bool(getattr(model, "usbgpu", False))
 
-  def send(self, *, model: Any, meta_main: Any, meta_extra: Any, v_ego: float,
-           transform_main: Any, transform_extra: Any, inputs: dict[str, Any]) -> bool:
+  def send(self, *, model: Any, meta_main: Any, meta_extra: Any, state_frame_id: int,
+           v_ego: float, transform_main: Any, transform_extra: Any, inputs: dict[str, Any]) -> bool:
     start = time.perf_counter_ns()
     self.calls += 1
     ok = False
@@ -42,6 +42,7 @@ class ModeldShadowTapBridge:
       snapshot = ShadowInputSnapshot(
         frame_id=int(meta_main.frame_id),
         frame_id_extra=int(meta_extra.frame_id),
+        state_frame_id=int(state_frame_id),
         camera_sof_ns=int(meta_main.timestamp_sof),
         camera_eof_ns=int(meta_main.timestamp_eof),
         active_backend="big" if self._is_big_model(model) else "small",
