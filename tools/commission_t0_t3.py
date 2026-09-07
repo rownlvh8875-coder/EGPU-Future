@@ -249,12 +249,24 @@ def apply_patch(repo: Path, session_dir: Path) -> dict:
   backup = backup_dir / "modeld.py.original"
   backup.write_text(original, encoding="utf-8")
 
-  runtime_target.parent.mkdir(parents=True, exist_ok=True)
-  shutil.copyfile(RUNTIME_SOURCE, runtime_target)
-  modeld_path.write_text(patched, encoding="utf-8")
-  py_compile.compile(str(modeld_path), doraise=True)
-  py_compile.compile(str(runtime_target), doraise=True)
-  verify_control_path_unchanged(original, modeld_path.read_text(encoding="utf-8"))
+  wrote_runtime = False
+  wrote_modeld = False
+  try:
+    runtime_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(RUNTIME_SOURCE, runtime_target)
+    wrote_runtime = True
+    modeld_path.write_text(patched, encoding="utf-8")
+    wrote_modeld = True
+    py_compile.compile(str(modeld_path), doraise=True)
+    py_compile.compile(str(runtime_target), doraise=True)
+    verify_control_path_unchanged(original, modeld_path.read_text(encoding="utf-8"))
+  except BaseException:
+    if wrote_modeld:
+      modeld_path.write_text(original, encoding="utf-8")
+    if wrote_runtime:
+      unlink_if_exists(runtime_target)
+    raise
+
   return {
     "originalBlob": blob,
     "backup": str(backup),
