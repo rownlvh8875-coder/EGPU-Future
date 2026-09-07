@@ -21,7 +21,7 @@ def normalize_shadow_output(row: dict, eligible_only: bool = True) -> dict | Non
   eof_ns = int(row.get("cameraTimestampEofNs", 0) or 0)
   return {
     "frameId": frame_id,
-    "frameAge": 0,
+    "frameAge": int(row.get("frameAge", 0) or 0),
     "modelExecutionTimeS": float(model_ms) / 1000.0,
     "desiredCurvature": float(action["desiredCurvature"]),
     "desiredAcceleration": float(action["desiredAcceleration"]),
